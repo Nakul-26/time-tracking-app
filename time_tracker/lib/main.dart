@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-import 'screens/task_list_screen.dart';
+import 'screens/home_dashboard_screen.dart';
+import 'services/notification_service.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
+  await NotificationService.init(appNavigatorKey);
   runApp(const MyApp());
 }
 
@@ -15,6 +19,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Time Tracker',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -25,7 +30,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF4F7F3),
         useMaterial3: true,
       ),
-      home: const TaskListScreen(),
+      home: const HomeDashboardScreen(),
     );
   }
 }

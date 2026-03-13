@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../services/task_service.dart';
+import 'daily_stats_screen.dart';
 import 'log_activity_screen.dart';
+import 'today_timeline_screen.dart';
 
 class TaskListScreen extends StatefulWidget {
   const TaskListScreen({super.key});
@@ -84,6 +86,16 @@ class _TaskListScreenState extends State<TaskListScreen> {
         title: const Text('Your Tasks'),
         actions: <Widget>[
           IconButton(
+            onPressed: _openDailyStatsScreen,
+            tooltip: 'View daily stats',
+            icon: const Icon(Icons.bar_chart),
+          ),
+          IconButton(
+            onPressed: _openTodayTimelineScreen,
+            tooltip: 'View timeline',
+            icon: const Icon(Icons.timeline),
+          ),
+          IconButton(
             onPressed: _openLogActivityScreen,
             tooltip: 'Log activity',
             icon: const Icon(Icons.bolt),
@@ -149,6 +161,22 @@ class _TaskListScreenState extends State<TaskListScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => const LogActivityScreen(),
+      ),
+    );
+  }
+
+  void _openTodayTimelineScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const TodayTimelineScreen(),
+      ),
+    );
+  }
+
+  void _openDailyStatsScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const DailyStatsScreen(),
       ),
     );
   }
