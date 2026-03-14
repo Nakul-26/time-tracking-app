@@ -2,17 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-import 'screens/home_dashboard_screen.dart';
+import 'screens/main_navigation_screen.dart';
 import 'services/notification_service.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
+@pragma('vm:entry-point')
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  await NotificationService.handleNotificationResponse(response);
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
+  await NotificationService.init(appNavigatorKey);
   runApp(const MyApp());
-  unawaited(NotificationService.init(appNavigatorKey));
 }
 
 class MyApp extends StatelessWidget {
@@ -32,7 +38,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF4F7F3),
         useMaterial3: true,
       ),
-      home: const HomeDashboardScreen(),
+      home: const MainNavigationScreen(),
     );
   }
 }

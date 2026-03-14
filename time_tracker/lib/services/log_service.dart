@@ -6,6 +6,7 @@ class LogService {
   static const String _logsBoxName = 'logs';
   static const Duration retroBlockSize = Duration(minutes: 5);
   static const int retroBlockCount = 6;
+  static const Duration minimumSessionDuration = Duration(seconds: 30);
 
   Future<void> addLog(ActivityLog log) async {
     final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
@@ -59,7 +60,35 @@ class LogService {
     final DateTime startTime = now ?? DateTime.now();
     final ActivityLog? currentActivity = await getCurrentActivity(startTime);
 
+    if (currentActivity != null && currentActivity.taskId == taskId) {
+      return currentActivity;
+    }
+
     if (currentActivity != null) {
+      final Duration currentDuration = startTime.difference(
+        currentActivity.startTime,
+      );
+
+      if (currentDuration < minimumSessionDuration) {
+        final ActivityLog? previousActivity = await _getPreviousActivity(
+          currentActivity,
+        );
+
+        if (previousActivity != null && previousActivity.taskId == taskId) {
+          await deleteLog(currentActivity.id);
+
+          final ActivityLog mergedLog = ActivityLog(
+            id: previousActivity.id,
+            taskId: previousActivity.taskId,
+            startTime: previousActivity.startTime,
+            endTime: null,
+          );
+
+          await updateLog(mergedLog);
+          return mergedLog;
+        }
+      }
+
       await updateLog(
         ActivityLog(
           id: currentActivity.id,
@@ -79,6 +108,27 @@ class LogService {
 
     await addLog(log);
     return log;
+  }
+
+  Future<ActivityLog?> _getPreviousActivity(ActivityLog activityLog) async {
+    final List<ActivityLog> logs = await getLogs();
+
+    for (final ActivityLog log in logs) {
+      if (log.id == activityLog.id) {
+        continue;
+      }
+
+      final DateTime? logEnd = log.endTime;
+      if (logEnd == null) {
+        continue;
+      }
+
+      if (logEnd.isAtSameMomentAs(activityLog.startTime)) {
+        return log;
+      }
+    }
+
+    return null;
   }
 
   Future<void> scheduleRetroWindow(

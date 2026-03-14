@@ -8,12 +8,9 @@ import '../services/log_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_service.dart';
-import 'daily_stats_screen.dart';
 import 'log_activity_screen.dart';
 import 'retro_edit_screen.dart';
-import 'settings_screen.dart';
 import 'task_list_screen.dart';
-import 'today_timeline_screen.dart';
 
 class HomeDashboardScreen extends StatefulWidget {
   const HomeDashboardScreen({super.key});
@@ -28,9 +25,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   final SettingsService _settingsService = SettingsService();
 
   List<_ActivitySummary> _topActivities = const <_ActivitySummary>[];
+  List<Task> _tasks = const <Task>[];
   _CurrentActivitySummary? _currentActivity;
+  String? _selectedTaskId;
   int _loggedMinutes = 0;
   int _missingMinutes = 0;
+  int _activeStartHour = 7;
+  int _activeEndHour = 23;
   bool _isLoading = true;
 
   @override
@@ -68,7 +69,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
 
         await NotificationService.scheduleReminder(
-          when: DateTime.now().add(Duration(minutes: task.defaultMinutes)),
+          when: currentActivity.startTime.add(
+            Duration(minutes: task.defaultMinutes),
+          ),
           minutes: task.defaultMinutes,
           taskName: task.name,
         );
@@ -83,6 +86,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Future<void> _loadDashboard() async {
     final List<ActivityLog> logs = await _logService.getLogs();
     final List<Task> tasks = await _taskService.getTasks();
+    final String? selectedTaskId = await _taskService.getSelectedTaskId();
+    final int activeStartHour = await _settingsService.getActiveStartHour();
+    final int activeEndHour = await _settingsService.getActiveEndHour();
     final DateTime now = DateTime.now();
     final Map<String, String> taskNamesById = <String, String>{
       for (final Task task in tasks) task.id: task.name,
@@ -104,9 +110,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       0,
       (int total, int value) => total + value,
     );
-    final int minutesSinceMidnight = now.difference(
-      DateTime(now.year, now.month, now.day),
-    ).inMinutes;
     final List<_ActivitySummary> topActivities = taskMinutes.entries
         .map(
           (MapEntry<String, int> entry) => _ActivitySummary(
@@ -122,10 +125,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     setState(() {
+      _tasks = tasks;
+      _selectedTaskId = selectedTaskId;
       _loggedMinutes = loggedMinutes;
-      _missingMinutes = (minutesSinceMidnight - loggedMinutes).clamp(
-        0,
-        minutesSinceMidnight,
+      _activeStartHour = activeStartHour;
+      _activeEndHour = activeEndHour;
+      _missingMinutes = _calculateMissingMinutes(
+        now,
+        loggedMinutes,
+        activeStartHour,
+        activeEndHour,
       );
       _topActivities = topActivities.take(3).toList();
       _currentActivity = currentActivity == null
@@ -140,10 +149,115 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     });
   }
 
-  bool _isSameDay(DateTime left, DateTime right) {
-    return left.year == right.year &&
-        left.month == right.month &&
-        left.day == right.day;
+  Future<void> _startActivity(Task task) async {
+    final ActivityLog log = await _logService.startActivity(task.id);
+    await _taskService.setSelectedTaskId(task.id);
+
+    final bool remindersEnabled = await _settingsService.getRemindersEnabled();
+    if (remindersEnabled) {
+      await NotificationService.scheduleReminder(
+        when: log.startTime.add(Duration(minutes: task.defaultMinutes)),
+        minutes: task.defaultMinutes,
+        taskName: task.name,
+      );
+    } else {
+      await NotificationService.cancelReminder();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadDashboard();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Started ${task.name}.'),
+      ),
+    );
+  }
+
+  int _calculateMissingMinutes(
+    DateTime now,
+    int loggedMinutes,
+    int startHour,
+    int endHour,
+  ) {
+    final DateTime start = DateTime(now.year, now.month, now.day, startHour);
+    final DateTime end = DateTime(now.year, now.month, now.day, endHour);
+
+    if (!end.isAfter(start)) {
+      return 0;
+    }
+
+    final int expectedMinutes;
+    if (now.isBefore(start)) {
+      expectedMinutes = 0;
+    } else if (now.isAfter(end)) {
+      expectedMinutes = end.difference(start).inMinutes;
+    } else {
+      expectedMinutes = now.difference(start).inMinutes;
+    }
+
+    return (expectedMinutes - loggedMinutes).clamp(0, expectedMinutes);
+  }
+
+  Future<void> _openLogActivityScreen() async {
+    await _openScreen(const LogActivityScreen());
+  }
+
+  Future<void> _openRetroEditScreen() async {
+    await _openScreen(const RetroEditScreen());
+  }
+
+  Future<void> _openTaskListScreen() async {
+    await _openScreen(const TaskListScreen());
+  }
+
+  List<Task> _quickLogTasks() {
+    if (_tasks.isEmpty) {
+      return const <Task>[];
+    }
+
+    final List<Task> prioritizedTasks = <Task>[];
+    final Set<String> addedIds = <String>{};
+
+    if (_currentActivity != null) {
+      final Task? currentTask = _tasks.cast<Task?>().firstWhere(
+        (Task? task) => task?.name == _currentActivity!.taskName,
+        orElse: () => null,
+      );
+      if (currentTask != null) {
+        prioritizedTasks.add(currentTask);
+        addedIds.add(currentTask.id);
+      }
+    }
+
+    if (_selectedTaskId != null) {
+      final Task? selectedTask = _tasks.cast<Task?>().firstWhere(
+        (Task? task) => task?.id == _selectedTaskId,
+        orElse: () => null,
+      );
+      if (selectedTask != null && addedIds.add(selectedTask.id)) {
+        prioritizedTasks.add(selectedTask);
+      }
+    }
+
+    for (final Task task in _tasks) {
+      if (addedIds.add(task.id)) {
+        prioritizedTasks.add(task);
+      }
+
+      if (prioritizedTasks.length >= 4) {
+        break;
+      }
+    }
+
+    return prioritizedTasks;
   }
 
   String _formatClock(DateTime value) {
@@ -170,6 +284,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     return '${hours}h ${remainingMinutes}m';
+  }
+
+  String _formatHour(int hour) {
+    final int normalizedHour = hour % 24;
+    final int displayHour = normalizedHour % 12 == 0 ? 12 : normalizedHour % 12;
+    final String suffix = normalizedHour >= 12 ? 'PM' : 'AM';
+    return '$displayHour:00 $suffix';
   }
 
   Color _missingAccentColor() {
@@ -203,13 +324,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Today'),
-        actions: <Widget>[
-          IconButton(
-            onPressed: () => _openScreen(const SettingsScreen()),
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings),
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -223,6 +337,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       'Your day at a glance.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Active hours: ${_formatHour(_activeStartHour)} - ${_formatHour(_activeEndHour)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF7A867F),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -253,6 +374,58 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         durationLabel:
                             _formatDuration(_currentActivity!.durationMinutes),
                       ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: _openRetroEditScreen,
+                          icon: const Icon(Icons.history),
+                          label: const Text('Adjust Last 30 Minutes'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    Text(
+                      'Quick Log',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_tasks.isEmpty)
+                      const _EmptyQuickLogState()
+                    else ...<Widget>[
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _quickLogTasks()
+                            .map(
+                              (Task task) => ActionChip(
+                                avatar: const Icon(
+                                  Icons.bolt,
+                                  size: 18,
+                                  color: Color(0xFF1E847F),
+                                ),
+                                label: Text(task.name),
+                                onPressed: () => _startActivity(task),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: <Widget>[
+                          OutlinedButton(
+                            onPressed: _openLogActivityScreen,
+                            child: const Text('More Tasks'),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton(
+                            onPressed: _openTaskListScreen,
+                            child: const Text('Manage Tasks'),
+                          ),
+                        ],
+                      ),
                     ],
                     const SizedBox(height: 24),
                     Text(
@@ -275,48 +448,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ),
                       ),
                     const SizedBox(height: 12),
-                    Text(
-                      'Quick Actions',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: <Widget>[
-                        _QuickActionButton(
-                          icon: Icons.bolt,
-                          label: 'Log Activity',
-                          onPressed: () =>
-                              _openScreen(const LogActivityScreen()),
-                        ),
-                        _QuickActionButton(
-                          icon: Icons.history,
-                          label: 'Retro Edit',
-                          onPressed: () =>
-                              _openScreen(const RetroEditScreen()),
-                        ),
-                        _QuickActionButton(
-                          icon: Icons.timeline,
-                          label: 'Timeline',
-                          onPressed: () =>
-                              _openScreen(const TodayTimelineScreen()),
-                        ),
-                        _QuickActionButton(
-                          icon: Icons.bar_chart,
-                          label: 'Stats',
-                          onPressed: () =>
-                              _openScreen(const DailyStatsScreen()),
-                        ),
-                        _QuickActionButton(
-                          icon: Icons.checklist,
-                          label: 'Tasks',
-                          onPressed: () => _openScreen(const TaskListScreen()),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
@@ -482,30 +613,6 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
-class _QuickActionButton extends StatelessWidget {
-  const _QuickActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 158,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon),
-        label: Text(label),
-      ),
-    );
-  }
-}
-
 class _EmptyDashboardState extends StatelessWidget {
   const _EmptyDashboardState();
 
@@ -541,6 +648,31 @@ class _EmptyDashboardState extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyQuickLogState extends StatelessWidget {
+  const _EmptyQuickLogState();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE1E7E2)),
+      ),
+      child: Text(
+        'Create tasks first, then logging becomes one tap from this screen.',
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: const Color(0xFF56635D),
+        ),
       ),
     );
   }
