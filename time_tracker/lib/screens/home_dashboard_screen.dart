@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/activity_log.dart';
@@ -8,6 +10,7 @@ import '../services/settings_service.dart';
 import '../services/task_service.dart';
 import 'daily_stats_screen.dart';
 import 'log_activity_screen.dart';
+import 'retro_edit_screen.dart';
 import 'settings_screen.dart';
 import 'task_list_screen.dart';
 import 'today_timeline_screen.dart';
@@ -25,6 +28,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   final SettingsService _settingsService = SettingsService();
 
   List<_ActivitySummary> _topActivities = const <_ActivitySummary>[];
+  _CurrentActivitySummary? _currentActivity;
   int _loggedMinutes = 0;
   int _missingMinutes = 0;
   bool _isLoading = true;
@@ -36,16 +40,44 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   Future<void> _initializeDashboard() async {
-    final bool remindersEnabled =
-        await _settingsService.getRemindersEnabled();
-
-    if (remindersEnabled) {
-      await NotificationService.scheduleTodayReminders();
-    } else {
-      await NotificationService.cancelAll();
-    }
-
     await _loadDashboard();
+
+    unawaited(_syncReminders());
+  }
+
+  Future<void> _syncReminders() async {
+    try {
+      final bool remindersEnabled = await _settingsService.getRemindersEnabled();
+
+      if (remindersEnabled) {
+        final ActivityLog? currentActivity = await _logService.getCurrentActivity();
+        if (currentActivity == null) {
+          await NotificationService.cancelReminder();
+          return;
+        }
+
+        final List<Task> tasks = await _taskService.getTasks();
+        final Task? task = tasks.cast<Task?>().firstWhere(
+          (Task? item) => item?.id == currentActivity.taskId,
+          orElse: () => null,
+        );
+
+        if (task == null) {
+          await NotificationService.cancelReminder();
+          return;
+        }
+
+        await NotificationService.scheduleReminder(
+          when: DateTime.now().add(Duration(minutes: task.defaultMinutes)),
+          minutes: task.defaultMinutes,
+          taskName: task.name,
+        );
+      } else {
+        await NotificationService.cancelReminder();
+      }
+    } catch (_) {
+      // Keep the dashboard usable even if notification setup fails.
+    }
   }
 
   Future<void> _loadDashboard() async {
@@ -56,26 +88,25 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       for (final Task task in tasks) task.id: task.name,
     };
     final Map<String, int> taskMinutes = <String, int>{};
-    final Set<String> loggedBlockIds = <String>{};
+    final ActivityLog? currentActivity = await _logService.getCurrentActivity(now);
 
     for (final ActivityLog log in logs) {
-      if (!_isSameDay(log.startTime, now)) {
+      final int durationMinutes = _logService.overlapMinutesForDay(log, now, now: now);
+      if (durationMinutes <= 0) {
         continue;
       }
 
-      final int durationMinutes = log.endTime.difference(log.startTime).inMinutes;
       final String taskName = taskNamesById[log.taskId] ?? 'Unknown';
       taskMinutes[taskName] = (taskMinutes[taskName] ?? 0) + durationMinutes;
-      loggedBlockIds.add(log.id);
     }
 
     final int loggedMinutes = taskMinutes.values.fold(
       0,
       (int total, int value) => total + value,
     );
-    final int totalSlotsSoFar = _totalSlotsSoFar(now);
-    final int missingSlots =
-        (totalSlotsSoFar - loggedBlockIds.length).clamp(0, totalSlotsSoFar);
+    final int minutesSinceMidnight = now.difference(
+      DateTime(now.year, now.month, now.day),
+    ).inMinutes;
     final List<_ActivitySummary> topActivities = taskMinutes.entries
         .map(
           (MapEntry<String, int> entry) => _ActivitySummary(
@@ -92,20 +123,34 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     setState(() {
       _loggedMinutes = loggedMinutes;
-      _missingMinutes = missingSlots * 30;
+      _missingMinutes = (minutesSinceMidnight - loggedMinutes).clamp(
+        0,
+        minutesSinceMidnight,
+      );
       _topActivities = topActivities.take(3).toList();
+      _currentActivity = currentActivity == null
+          ? null
+          : _CurrentActivitySummary(
+              taskName: taskNamesById[currentActivity.taskId] ?? 'Unknown',
+              startedAt: currentActivity.startTime,
+              durationMinutes:
+                  _logService.durationMinutesForLog(currentActivity, now: now),
+            );
       _isLoading = false;
     });
-  }
-
-  int _totalSlotsSoFar(DateTime now) {
-    return (now.hour * 2) + (now.minute ~/ 30);
   }
 
   bool _isSameDay(DateTime left, DateTime right) {
     return left.year == right.year &&
         left.month == right.month &&
         left.day == right.day;
+  }
+
+  String _formatClock(DateTime value) {
+    final int hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final String minute = value.minute.toString().padLeft(2, '0');
+    final String suffix = value.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
   }
 
   String _formatDuration(int minutes) {
@@ -200,6 +245,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ),
                       ],
                     ),
+                    if (_currentActivity != null) ...<Widget>[
+                      const SizedBox(height: 24),
+                      _CurrentActivityCard(
+                        taskName: _currentActivity!.taskName,
+                        startedAt: _formatClock(_currentActivity!.startedAt),
+                        durationLabel:
+                            _formatDuration(_currentActivity!.durationMinutes),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     Text(
                       'Top Activities',
@@ -239,6 +293,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                               _openScreen(const LogActivityScreen()),
                         ),
                         _QuickActionButton(
+                          icon: Icons.history,
+                          label: 'Retro Edit',
+                          onPressed: () =>
+                              _openScreen(const RetroEditScreen()),
+                        ),
+                        _QuickActionButton(
                           icon: Icons.timeline,
                           label: 'Timeline',
                           onPressed: () =>
@@ -270,6 +330,18 @@ class _ActivitySummary {
 
   final String taskName;
   final int minutes;
+}
+
+class _CurrentActivitySummary {
+  const _CurrentActivitySummary({
+    required this.taskName,
+    required this.startedAt,
+    required this.durationMinutes,
+  });
+
+  final String taskName;
+  final DateTime startedAt;
+  final int durationMinutes;
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -309,6 +381,58 @@ class _SummaryCard extends StatelessWidget {
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w700,
               color: accentColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CurrentActivityCard extends StatelessWidget {
+  const _CurrentActivityCard({
+    required this.taskName,
+    required this.startedAt,
+    required this.durationLabel,
+  });
+
+  final String taskName;
+  final String startedAt;
+  final String durationLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE1E7E2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Currently Doing',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: const Color(0xFF56635D),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            taskName,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Started $startedAt · $durationLabel so far',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: const Color(0xFF56635D),
             ),
           ),
         ],

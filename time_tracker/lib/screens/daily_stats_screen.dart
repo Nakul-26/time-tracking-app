@@ -36,12 +36,12 @@ class _DailyStatsScreenState extends State<DailyStatsScreen> {
     final Map<String, int> taskMinutes = <String, int>{};
 
     for (final ActivityLog log in logs) {
-      if (!_isSameDay(log.startTime, now)) {
+      final int durationMinutes = _logService.overlapMinutesForDay(log, now, now: now);
+      if (durationMinutes <= 0) {
         continue;
       }
 
       final String taskName = taskNamesById[log.taskId] ?? 'Unknown';
-      final int durationMinutes = log.endTime.difference(log.startTime).inMinutes;
       taskMinutes[taskName] = (taskMinutes[taskName] ?? 0) + durationMinutes;
     }
 

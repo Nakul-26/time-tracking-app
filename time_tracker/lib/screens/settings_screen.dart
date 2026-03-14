@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../models/task.dart';
+import '../services/log_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
+import '../services/task_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,6 +15,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final SettingsService _settingsService = SettingsService();
+  final LogService _logService = LogService();
+  final TaskService _taskService = TaskService();
 
   bool _remindersEnabled = true;
   bool _isLoading = true;
@@ -44,9 +49,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _settingsService.setRemindersEnabled(enabled);
 
     if (enabled) {
-      await NotificationService.scheduleTodayReminders();
+      final currentActivity = await _logService.getCurrentActivity();
+      if (currentActivity != null) {
+        final List<Task> tasks = await _taskService.getTasks();
+        final Task? task = tasks.cast<Task?>().firstWhere(
+          (Task? item) => item?.id == currentActivity.taskId,
+          orElse: () => null,
+        );
+
+        if (task != null) {
+          await NotificationService.scheduleReminder(
+            when: DateTime.now().add(Duration(minutes: task.defaultMinutes)),
+            minutes: task.defaultMinutes,
+            taskName: task.name,
+          );
+        }
+      }
     } else {
-      await NotificationService.cancelAll();
+      await NotificationService.cancelReminder();
     }
 
     if (!mounted) {
@@ -82,7 +102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: SwitchListTile(
                     title: const Text('Reminder Notifications'),
                     subtitle: const Text(
-                      'Get a reminder every 30 minutes to log your time.',
+                      'Use each task’s default reminder length for the next check-in.',
                     ),
                     value: _remindersEnabled,
                     onChanged: _toggleReminders,

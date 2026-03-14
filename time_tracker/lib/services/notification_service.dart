@@ -15,7 +15,7 @@ class NotificationService {
   static const String _channelName = 'Time Tracker';
   static const String _channelDescription =
       'Reminders to log the last 30 minutes.';
-  static const int _reminderNotificationBaseId = 3000;
+  static const int _nextReminderNotificationId = 4000;
   static const String _logPayload = 'open_log_activity';
 
   static Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
@@ -57,14 +57,17 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
 
     await androidImplementation?.requestNotificationsPermission();
-    await androidImplementation?.requestExactAlarmsPermission();
   }
 
-  static Future<void> cancelAll() async {
-    await _notificationsPlugin.cancelAll();
+  static Future<void> cancelReminder() async {
+    await _notificationsPlugin.cancel(_nextReminderNotificationId);
   }
 
-  static Future<void> scheduleTodayReminders() async {
+  static Future<void> scheduleReminder({
+    required DateTime when,
+    required int minutes,
+    required String taskName,
+  }) async {
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
       _channelId,
@@ -77,46 +80,18 @@ class NotificationService {
       android: androidDetails,
     );
 
-    await cancelAll();
+    await cancelReminder();
 
-    final DateTime now = DateTime.now();
-    final DateTime startOfDay = DateTime(now.year, now.month, now.day);
-    DateTime nextSlot = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute < 30 ? 30 : 0,
+    await _notificationsPlugin.zonedSchedule(
+      _nextReminderNotificationId,
+      'Time Tracker',
+      'Time to check in on $taskName after $minutes minutes.',
+      tz.TZDateTime.from(when, tz.local),
+      notificationDetails,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: _logPayload,
     );
-
-    if (nextSlot.isBefore(now) || nextSlot.isAtSameMomentAs(now)) {
-      nextSlot = nextSlot.add(const Duration(hours: 1));
-    }
-
-    if (nextSlot.day != startOfDay.day) {
-      nextSlot = startOfDay.add(const Duration(days: 1));
-    }
-
-    int notificationId = _reminderNotificationBaseId;
-    while (nextSlot.day == startOfDay.day) {
-      await _notificationsPlugin.zonedSchedule(
-        notificationId,
-        'Time Tracker',
-        'What were you doing the last 30 minutes?',
-        tz.TZDateTime.from(nextSlot, tz.local),
-        notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        payload: _logPayload,
-      );
-
-      notificationId += 1;
-      nextSlot = nextSlot.add(const Duration(minutes: 30));
-    }
-  }
-
-  static Future<void> scheduleHalfHourReminders() async {
-    await scheduleTodayReminders();
   }
 }

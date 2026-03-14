@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -9,8 +11,8 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  await NotificationService.init(appNavigatorKey);
   runApp(const MyApp());
+  unawaited(NotificationService.init(appNavigatorKey));
 }
 
 class MyApp extends StatelessWidget {

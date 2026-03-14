@@ -12,6 +12,25 @@ class TaskService {
     await box.put(task.id, task.toMap());
   }
 
+  Future<void> updateTask(Task task) async {
+    final Box<dynamic> box = await Hive.openBox<dynamic>(_tasksBoxName);
+    await box.put(task.id, task.toMap());
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    final Box<dynamic> box = await Hive.openBox<dynamic>(_tasksBoxName);
+    await box.delete(taskId);
+
+    final Box<dynamic> settingsBox = await Hive.openBox<dynamic>(
+      _settingsBoxName,
+    );
+    final dynamic selectedTaskId = settingsBox.get(_selectedTaskIdKey);
+
+    if (selectedTaskId == taskId) {
+      await settingsBox.delete(_selectedTaskIdKey);
+    }
+  }
+
   Future<List<Task>> getTasks() async {
     final Box<dynamic> box = await Hive.openBox<dynamic>(_tasksBoxName);
     final List<Task> tasks = box.keys.map((dynamic key) {

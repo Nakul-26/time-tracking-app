@@ -57,7 +57,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
     final Task? task = await showModalBottomSheet<Task>(
       context: context,
       isScrollControlled: true,
-      builder: (BuildContext context) => const _AddTaskSheet(),
+      builder: (BuildContext context) => const _TaskEditorSheet(),
     );
 
     if (task == null) {
@@ -75,6 +75,68 @@ class _TaskListScreenState extends State<TaskListScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('${task.name} added')));
+  }
+
+  Future<void> _showEditTaskSheet(Task task) async {
+    final Task? updatedTask = await showModalBottomSheet<Task>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) => _TaskEditorSheet(task: task),
+    );
+
+    if (updatedTask == null) {
+      return;
+    }
+
+    await _taskService.updateTask(updatedTask);
+    await _loadTasks();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${updatedTask.name} updated')),
+    );
+  }
+
+  Future<void> _deleteTask(Task task) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete task?'),
+          content: Text(
+            'Delete "${task.name}"? Existing logs will keep it as Unknown.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await _taskService.deleteTask(task.id);
+    await _loadTasks();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${task.name} deleted')),
+    );
   }
 
   @override
@@ -133,6 +195,8 @@ class _TaskListScreenState extends State<TaskListScreen> {
                                   task: task,
                                   isSelected: isSelected,
                                   onTap: () => _selectTask(task),
+                                  onEdit: () => _showEditTaskSheet(task),
+                                  onDelete: () => _deleteTask(task),
                                 );
                               },
                             ),
@@ -187,11 +251,15 @@ class _TaskCard extends StatelessWidget {
     required this.task,
     required this.isSelected,
     required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final Task task;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -236,6 +304,13 @@ class _TaskCard extends StatelessWidget {
                           ),
                         ),
                       ],
+                      const SizedBox(height: 6),
+                      Text(
+                        'Reminder: every ${task.defaultMinutes} min',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF56635D),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -247,6 +322,27 @@ class _TaskCard extends StatelessWidget {
                   color: isSelected
                       ? const Color(0xFF1E847F)
                       : const Color(0xFF8D9A93),
+                ),
+                PopupMenuButton<_TaskAction>(
+                  tooltip: 'Task actions',
+                  onSelected: (_TaskAction action) {
+                    if (action == _TaskAction.edit) {
+                      onEdit();
+                    } else {
+                      onDelete();
+                    }
+                  },
+                  itemBuilder: (BuildContext context) =>
+                      const <PopupMenuEntry<_TaskAction>>[
+                        PopupMenuItem<_TaskAction>(
+                          value: _TaskAction.edit,
+                          child: Text('Edit'),
+                        ),
+                        PopupMenuItem<_TaskAction>(
+                          value: _TaskAction.delete,
+                          child: Text('Delete'),
+                        ),
+                      ],
                 ),
               ],
             ),
@@ -307,22 +403,42 @@ class _EmptyTaskState extends StatelessWidget {
   }
 }
 
-class _AddTaskSheet extends StatefulWidget {
-  const _AddTaskSheet();
+enum _TaskAction { edit, delete }
+
+class _TaskEditorSheet extends StatefulWidget {
+  const _TaskEditorSheet({this.task});
+
+  final Task? task;
 
   @override
-  State<_AddTaskSheet> createState() => _AddTaskSheetState();
+  State<_TaskEditorSheet> createState() => _TaskEditorSheetState();
 }
 
-class _AddTaskSheetState extends State<_AddTaskSheet> {
+class _TaskEditorSheetState extends State<_TaskEditorSheet> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _categoryController = TextEditingController();
+  late final TextEditingController _nameController;
+  late final TextEditingController _categoryController;
+  late final TextEditingController _defaultMinutesController;
+
+  bool get _isEditing => widget.task != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.task?.name ?? '');
+    _categoryController = TextEditingController(
+      text: widget.task?.category ?? '',
+    );
+    _defaultMinutesController = TextEditingController(
+      text: (widget.task?.defaultMinutes ?? 30).toString(),
+    );
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _categoryController.dispose();
+    _defaultMinutesController.dispose();
     super.dispose();
   }
 
@@ -333,9 +449,10 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
 
     Navigator.of(context).pop(
       Task(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: widget.task?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         name: _nameController.text.trim(),
         category: _categoryController.text.trim(),
+        defaultMinutes: int.parse(_defaultMinutesController.text.trim()),
       ),
     );
   }
@@ -352,9 +469,9 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text(
-              'Add Task',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            Text(
+              _isEditing ? 'Edit Task' : 'Add Task',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -376,20 +493,43 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _categoryController,
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) => _submit(),
+              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Category (optional)',
                 hintText: 'Productive',
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _defaultMinutesController,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Default reminder minutes',
+                hintText: '30',
+                border: OutlineInputBorder(),
+              ),
+              validator: (String? value) {
+                final int? minutes = int.tryParse(value?.trim() ?? '');
+                if (minutes == null || minutes <= 0) {
+                  return 'Enter reminder minutes';
+                }
+
+                if (minutes > 720) {
+                  return 'Use 720 minutes or less';
+                }
+
+                return null;
+              },
+            ),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
                 onPressed: _submit,
-                child: const Text('Save Task'),
+                child: Text(_isEditing ? 'Save Changes' : 'Save Task'),
               ),
             ),
           ],

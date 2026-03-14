@@ -29,40 +29,21 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     final List<ActivityLog> allLogs = await _logService.getLogs();
     final List<Task> tasks = await _taskService.getTasks();
     final DateTime now = DateTime.now();
-    final DateTime startOfDay = DateTime(now.year, now.month, now.day);
-    final DateTime endOfTimeline = _logService.currentBlockStart(now).add(
-      const Duration(minutes: 30),
-    );
     final Map<String, String> taskNamesById = <String, String>{
       for (final Task task in tasks) task.id: task.name,
     };
-    final Map<String, ActivityLog> logsByBlockId = <String, ActivityLog>{
-      for (final ActivityLog log in allLogs)
-        if (_isSameDay(log.startTime, now)) log.id: log,
-    };
-
-    final List<_TimelineEntry> entries = <_TimelineEntry>[];
-    DateTime slotStart = startOfDay;
-
-    while (slotStart.isBefore(endOfTimeline)) {
-      final DateTime slotEnd = slotStart.add(const Duration(minutes: 30));
-      final String blockId = slotStart.toIso8601String();
-      final ActivityLog? log = logsByBlockId[blockId];
-      final String label = log == null
-          ? 'Not logged'
-          : taskNamesById[log.taskId] ?? 'Task ID: ${log.taskId}';
-
-      entries.add(
-        _TimelineEntry(
-          startTime: slotStart,
-          endTime: slotEnd,
-          label: label,
-          isLogged: log != null,
-        ),
-      );
-
-      slotStart = slotEnd;
-    }
+    final List<_TimelineEntry> entries = allLogs
+        .where((ActivityLog log) => _logService.overlapMinutesForDay(log, now, now: now) > 0)
+        .map(
+          (ActivityLog log) => _TimelineEntry(
+            startTime: log.startTime,
+            endTime: log.endTime ?? now,
+            label: taskNamesById[log.taskId] ?? 'Unknown',
+            isLogged: true,
+          ),
+        )
+        .toList()
+      ..sort((a, b) => b.startTime.compareTo(a.startTime));
 
     if (!mounted) {
       return;
@@ -101,31 +82,75 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'See every 30-minute block from today in one place.',
+                      'See today as real activity sessions instead of fixed blocks.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
                     ),
                     const SizedBox(height: 20),
                     Expanded(
-                      child: ListView.separated(
-                        itemCount: _entries.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (BuildContext context, int index) {
-                          final _TimelineEntry entry = _entries[index];
-                          return _TimelineCard(
-                            timeRange:
-                                '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
-                            label: entry.label,
-                            isLogged: entry.isLogged,
-                          );
-                        },
-                      ),
+                      child: _entries.isEmpty
+                          ? const _EmptyTimelineState()
+                          : ListView.separated(
+                              itemCount: _entries.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (BuildContext context, int index) {
+                                final _TimelineEntry entry = _entries[index];
+                                return _TimelineCard(
+                                  timeRange:
+                                      '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
+                                  label: entry.label,
+                                  isLogged: entry.isLogged,
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _EmptyTimelineState extends StatelessWidget {
+  const _EmptyTimelineState();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFE1E7E2)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.timeline, size: 48, color: Color(0xFF1E847F)),
+            const SizedBox(height: 16),
+            Text(
+              'No timeline yet',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Start an activity or retroactively edit the last 30 minutes.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: const Color(0xFF56635D),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
