@@ -145,6 +145,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       initialTime: TimeOfDay(hour: _activeStartHour, minute: 0),
     );
 
+    if (!mounted) {
+      return;
+    }
+
     if (pickedTime == null) {
       return;
     }
@@ -210,10 +214,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
+
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: _activeEndHour == 24 ? 23 : _activeEndHour, minute: 0),
     );
+
+    if (!mounted) {
+      return;
+    }
 
     if (pickedTime == null) {
       return;

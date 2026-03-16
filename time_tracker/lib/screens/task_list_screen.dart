@@ -150,7 +150,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
                           ? _EmptyTaskState(onAddTask: _showAddTaskSheet)
                           : ListView.separated(
                               itemCount: _tasks.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 12),
                               itemBuilder: (BuildContext context, int index) {
                                 final Task task = _tasks[index];
@@ -458,7 +458,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _availableCategories.contains(_selectedCategory)
+              initialValue: _availableCategories.contains(_selectedCategory)
                   ? _selectedCategory
                   : _availableCategories.first,
               decoration: const InputDecoration(

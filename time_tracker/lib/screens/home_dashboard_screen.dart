@@ -125,7 +125,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   Future<void> _startActivity(Task task) async {
-    final ActivityLog log = await _logService.startActivity(task.id);
+    await _logService.startActivity(task.id);
     await _taskService.setSelectedTaskId(task.id);
 
     final bool remindersEnabled = await _settingsService.getRemindersEnabled();

@@ -173,7 +173,7 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
                           ? const _EmptyLoggerState()
                           : ListView.separated(
                               itemCount: _tasks.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 12),
                               itemBuilder: (BuildContext context, int index) {
                                 final Task task = _tasks[index];
