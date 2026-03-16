@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../services/task_service.dart';
-import 'daily_stats_screen.dart';
-import 'log_activity_screen.dart';
-import 'today_timeline_screen.dart';
 
 class TaskListScreen extends StatefulWidget {
   const TaskListScreen({super.key});
@@ -17,7 +14,6 @@ class _TaskListScreenState extends State<TaskListScreen> {
   final TaskService _taskService = TaskService();
 
   List<Task> _tasks = const <Task>[];
-  String? _selectedTaskId;
   bool _isLoading = true;
 
   @override
@@ -28,7 +24,6 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
   Future<void> _loadTasks() async {
     final List<Task> tasks = await _taskService.getTasks();
-    final String? selectedTaskId = await _taskService.getSelectedTaskId();
 
     if (!mounted) {
       return;
@@ -36,20 +31,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
     setState(() {
       _tasks = tasks;
-      _selectedTaskId = selectedTaskId;
       _isLoading = false;
-    });
-  }
-
-  Future<void> _selectTask(Task task) async {
-    await _taskService.setSelectedTaskId(task.id);
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _selectedTaskId = task.id;
     });
   }
 
@@ -65,7 +47,6 @@ class _TaskListScreenState extends State<TaskListScreen> {
     }
 
     await _taskService.addTask(task);
-    await _taskService.setSelectedTaskId(task.id);
     await _loadTasks();
 
     if (!mounted) {
@@ -145,24 +126,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your Tasks'),
-        actions: <Widget>[
-          IconButton(
-            onPressed: _openDailyStatsScreen,
-            tooltip: 'View daily stats',
-            icon: const Icon(Icons.bar_chart),
-          ),
-          IconButton(
-            onPressed: _openTodayTimelineScreen,
-            tooltip: 'View timeline',
-            icon: const Icon(Icons.timeline),
-          ),
-          IconButton(
-            onPressed: _openLogActivityScreen,
-            tooltip: 'Log activity',
-            icon: const Icon(Icons.bolt),
-          ),
-        ],
+        title: const Text('Manage Tasks'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -172,10 +136,12 @@ class _TaskListScreenState extends State<TaskListScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
+                    _TaskHintCard(theme: theme),
+                    const SizedBox(height: 20),
                     Text(
-                      'Build the labels you will reuse for logging your day.',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: const Color(0xFF56635D),
+                      'Your Tasks',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -188,13 +154,9 @@ class _TaskListScreenState extends State<TaskListScreen> {
                                   const SizedBox(height: 12),
                               itemBuilder: (BuildContext context, int index) {
                                 final Task task = _tasks[index];
-                                final bool isSelected =
-                                    task.id == _selectedTaskId;
 
                                 return _TaskCard(
                                   task: task,
-                                  isSelected: isSelected,
-                                  onTap: () => _selectTask(task),
                                   onEdit: () => _showEditTaskSheet(task),
                                   onDelete: () => _deleteTask(task),
                                 );
@@ -210,38 +172,6 @@ class _TaskListScreenState extends State<TaskListScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Add Task'),
       ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: FilledButton.icon(
-          onPressed: _openLogActivityScreen,
-          icon: const Icon(Icons.bolt),
-          label: const Text('Log Current Activity'),
-        ),
-      ),
-    );
-  }
-
-  void _openLogActivityScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => const LogActivityScreen(),
-      ),
-    );
-  }
-
-  void _openTodayTimelineScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => const TodayTimelineScreen(),
-      ),
-    );
-  }
-
-  void _openDailyStatsScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => const DailyStatsScreen(),
-      ),
     );
   }
 }
@@ -249,15 +179,11 @@ class _TaskListScreenState extends State<TaskListScreen> {
 class _TaskCard extends StatelessWidget {
   const _TaskCard({
     required this.task,
-    required this.isSelected,
-    required this.onTap,
     required this.onEdit,
     required this.onDelete,
   });
 
   final Task task;
-  final bool isSelected;
-  final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -267,87 +193,110 @@ class _TaskCard extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFD8F1E6) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF1E847F)
-                  : const Color(0xFFE1E7E2),
-              width: isSelected ? 2 : 1,
-            ),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFE1E7E2),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        task.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      task.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      if (task.category.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 6),
-                        Text(
-                          task.category,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF56635D),
-                          ),
-                        ),
-                      ],
+                    ),
+                    if (task.category.isNotEmpty) ...<Widget>[
                       const SizedBox(height: 6),
                       Text(
-                        'Reminder: every ${task.defaultMinutes} min',
+                        task.category,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF56635D),
                         ),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Next reminder: ${task.defaultMinutes} min',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF56635D),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Icon(
-                  isSelected
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
-                  color: isSelected
-                      ? const Color(0xFF1E847F)
-                      : const Color(0xFF8D9A93),
-                ),
-                PopupMenuButton<_TaskAction>(
-                  tooltip: 'Task actions',
-                  onSelected: (_TaskAction action) {
-                    if (action == _TaskAction.edit) {
-                      onEdit();
-                    } else {
-                      onDelete();
-                    }
-                  },
-                  itemBuilder: (BuildContext context) =>
-                      const <PopupMenuEntry<_TaskAction>>[
-                        PopupMenuItem<_TaskAction>(
-                          value: _TaskAction.edit,
-                          child: Text('Edit'),
-                        ),
-                        PopupMenuItem<_TaskAction>(
-                          value: _TaskAction.delete,
-                          child: Text('Delete'),
-                        ),
-                      ],
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              PopupMenuButton<_TaskAction>(
+                tooltip: 'Task actions',
+                onSelected: (_TaskAction action) {
+                  if (action == _TaskAction.edit) {
+                    onEdit();
+                  } else {
+                    onDelete();
+                  }
+                },
+                itemBuilder: (BuildContext context) =>
+                    const <PopupMenuEntry<_TaskAction>>[
+                      PopupMenuItem<_TaskAction>(
+                        value: _TaskAction.edit,
+                        child: Text('Edit'),
+                      ),
+                      PopupMenuItem<_TaskAction>(
+                        value: _TaskAction.delete,
+                        child: Text('Delete'),
+                      ),
+                    ],
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TaskHintCard extends StatelessWidget {
+  const _TaskHintCard({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF5EF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFCFE4D7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'This page is only for managing task labels.',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF15201B),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Add, edit, or delete tasks here. Use Home or Timeline to log what you are doing.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF56635D),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -415,30 +364,47 @@ class _TaskEditorSheet extends StatefulWidget {
 }
 
 class _TaskEditorSheetState extends State<_TaskEditorSheet> {
+  static const List<String> _categoryOptions = <String>[
+    'Work',
+    'Study',
+    'Personal',
+    'Health',
+    'Break',
+    'Other',
+  ];
+
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
-  late final TextEditingController _categoryController;
-  late final TextEditingController _defaultMinutesController;
+  late final TextEditingController _durationController;
+  late String _selectedCategory;
 
   bool get _isEditing => widget.task != null;
+
+  List<String> get _availableCategories {
+    final String existingCategory = widget.task?.category.trim() ?? '';
+    if (existingCategory.isEmpty ||
+        _categoryOptions.contains(existingCategory)) {
+      return _categoryOptions;
+    }
+
+    return <String>[existingCategory, ..._categoryOptions];
+  }
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.task?.name ?? '');
-    _categoryController = TextEditingController(
-      text: widget.task?.category ?? '',
-    );
-    _defaultMinutesController = TextEditingController(
+    _durationController = TextEditingController(
       text: (widget.task?.defaultMinutes ?? 30).toString(),
     );
+    final String existingCategory = widget.task?.category.trim() ?? '';
+    _selectedCategory = existingCategory.isEmpty ? _categoryOptions.first : existingCategory;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _categoryController.dispose();
-    _defaultMinutesController.dispose();
+    _durationController.dispose();
     super.dispose();
   }
 
@@ -451,8 +417,8 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
       Task(
         id: widget.task?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         name: _nameController.text.trim(),
-        category: _categoryController.text.trim(),
-        defaultMinutes: int.parse(_defaultMinutesController.text.trim()),
+        category: _selectedCategory,
+        defaultMinutes: int.tryParse(_durationController.text.trim()) ?? 30,
       ),
     );
   }
@@ -491,23 +457,40 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _categoryController,
-              textInputAction: TextInputAction.next,
+            DropdownButtonFormField<String>(
+              value: _availableCategories.contains(_selectedCategory)
+                  ? _selectedCategory
+                  : _availableCategories.first,
               decoration: const InputDecoration(
-                labelText: 'Category (optional)',
-                hintText: 'Productive',
+                labelText: 'Category',
                 border: OutlineInputBorder(),
               ),
+              items: _availableCategories
+                  .map(
+                    (String category) => DropdownMenuItem<String>(
+                      value: category,
+                      child: Text(category),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (String? value) {
+                if (value == null) {
+                  return;
+                }
+
+                setState(() {
+                  _selectedCategory = value;
+                });
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
-              controller: _defaultMinutesController,
+              controller: _durationController,
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _submit(),
               decoration: const InputDecoration(
-                labelText: 'Default reminder minutes',
+                labelText: 'Next reminder after (minutes)',
                 hintText: '30',
                 border: OutlineInputBorder(),
               ),
@@ -516,13 +499,18 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                 if (minutes == null || minutes <= 0) {
                   return 'Enter reminder minutes';
                 }
-
                 if (minutes > 720) {
                   return 'Use 720 minutes or less';
                 }
-
                 return null;
               },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Used for the "What will you do next?" reminder. The tracking view still supports 5-minute blocks.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF56635D),
+                  ),
             ),
             const SizedBox(height: 20),
             SizedBox(

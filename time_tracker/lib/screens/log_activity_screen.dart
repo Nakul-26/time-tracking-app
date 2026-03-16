@@ -54,14 +54,13 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
 
     final bool remindersEnabled = await _settingsService.getRemindersEnabled();
     if (remindersEnabled) {
-      await NotificationService.scheduleReminder(
-        when: DateTime.now().add(Duration(minutes: task.defaultMinutes)),
-        minutes: task.defaultMinutes,
-        taskName: task.name,
+      await NotificationService.planNextReminder(
+        minutes: task.defaultMinutes > 0 ? task.defaultMinutes : 30,
       );
     } else {
       await NotificationService.cancelReminder();
     }
+    await NotificationService.syncSummaryNotifications();
 
     if (!mounted) {
       return;
@@ -75,7 +74,7 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Started ${task.name}. Next reminder in ${task.defaultMinutes} minutes.',
+          'Logged ${task.name} for the current 30-minute slot.',
         ),
       ),
     );
@@ -148,23 +147,25 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
                     if (_currentActivity != null && currentTask != null)
                       const SizedBox(height: 20),
                     Text(
-                      'What are you doing now?',
+                      'Manual Logging',
                       style: theme.textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Start a task now, or adjust the last 30 minutes retroactively.',
+                      'You usually do not need this screen. It is only for manual corrections before or after the notification flow.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
                     ),
                     const SizedBox(height: 16),
+                    const _LogHintCard(),
+                    const SizedBox(height: 16),
                     OutlinedButton.icon(
                       onPressed: _openRetroEditor,
                       icon: const Icon(Icons.history),
-                      label: const Text('Adjust Last 30 Minutes'),
+                      label: const Text('Adjust Recent Slots'),
                     ),
                     const SizedBox(height: 20),
                     Expanded(
@@ -247,7 +248,7 @@ class _TaskChoiceCard extends StatelessWidget {
                       ],
                       const SizedBox(height: 6),
                       Text(
-                        'Next reminder in ${task.defaultMinutes} min',
+                        'Tap to assign this 30-minute slot',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF56635D),
                         ),
@@ -263,6 +264,32 @@ class _TaskChoiceCard extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LogHintCard extends StatelessWidget {
+  const _LogHintCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF5EF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFCFE4D7)),
+      ),
+      child: Text(
+        'Preferred workflow: wait for the notification, choose what you just did, then choose what you will do next.',
+        
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF56635D),
         ),
       ),
     );
@@ -296,7 +323,7 @@ class _CurrentActivityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Currently Doing',
+            'Current Slot',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
             ),
@@ -310,7 +337,7 @@ class _CurrentActivityCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Started $startedAt · $durationLabel so far',
+            '$startedAt for $durationLabel',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
             ),

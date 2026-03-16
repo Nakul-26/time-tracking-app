@@ -23,7 +23,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
 
   List<_TimelineEntry> _entries = const <_TimelineEntry>[];
   int _activeStartHour = 7;
-  int _activeEndHour = 23;
+  int _activeEndHour = 24;
   bool _isLoading = true;
   Timer? _refreshTimer;
 
@@ -60,13 +60,15 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       now.year,
       now.month,
       now.day,
-      activeEndHour,
+    ).add(
+      activeEndHour == 24
+          ? const Duration(days: 1)
+          : Duration(hours: activeEndHour),
     );
     final Map<String, Task> tasksById = <String, Task>{
       for (final Task task in tasks) task.id: task,
     };
-
-    final List<_TimelineEntry> entries = allLogs
+    final List<_TimelineEntry> loggedEntries = allLogs
         .map(
           (ActivityLog log) => _clipLogToWindow(
             log: log,
@@ -79,6 +81,12 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
         .whereType<_TimelineEntry>()
         .toList()
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final List<_TimelineEntry> entries = _withUnknownSlots(
+      loggedEntries,
+      windowStart,
+      windowEnd,
+      now,
+    );
 
     if (!mounted) {
       return;
@@ -103,7 +111,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       return null;
     }
 
-    final DateTime effectiveEnd = log.endTime ?? now;
+    final DateTime effectiveEnd = _logService.effectiveEndTime(log, now: now);
     final DateTime clippedStart =
         log.startTime.isBefore(windowStart) ? windowStart : log.startTime;
     final DateTime clippedEnd =
@@ -120,7 +128,51 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       endTime: clippedEnd,
       label: task?.name ?? 'Unknown',
       color: _taskColor(log.taskId),
-      isActive: log.endTime == null,
+      isActive: _logService.isActivityActive(log, now: now),
+    );
+  }
+
+  List<_TimelineEntry> _withUnknownSlots(
+    List<_TimelineEntry> entries,
+    DateTime windowStart,
+    DateTime windowEnd,
+    DateTime now,
+  ) {
+    final List<_TimelineEntry> filledEntries = <_TimelineEntry>[];
+    DateTime cursor = windowStart;
+    final DateTime effectiveEnd = now.isBefore(windowEnd) ? now : windowEnd;
+
+    for (final _TimelineEntry entry in entries) {
+      if (entry.startTime.isAfter(cursor)) {
+        filledEntries.add(
+          _unknownEntry(cursor, entry.startTime, now),
+        );
+      }
+      filledEntries.add(entry);
+      if (entry.endTime.isAfter(cursor)) {
+        cursor = entry.endTime;
+      }
+    }
+
+    if (effectiveEnd.isAfter(cursor)) {
+      filledEntries.add(_unknownEntry(cursor, effectiveEnd, now));
+    }
+
+    return filledEntries;
+  }
+
+  _TimelineEntry _unknownEntry(
+    DateTime start,
+    DateTime end,
+    DateTime now,
+  ) {
+    return _TimelineEntry(
+      taskId: '__unknown__',
+      startTime: start,
+      endTime: end,
+      label: 'Unknown',
+      color: const Color(0xFFD7DCD8),
+      isActive: !now.isBefore(start) && now.isBefore(end),
     );
   }
 
@@ -146,6 +198,9 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
   }
 
   String _formatHour(int hour) {
+    if (hour == 24) {
+      return '24:00';
+    }
     return TimeOfDay(hour: hour % 24, minute: 0).format(context);
   }
 
@@ -204,7 +259,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                       ),
                     );
                   },
-                  child: const Text('Adjust Last 30 Minutes'),
+                  child: const Text('Adjust Recent Slots'),
                 ),
               ),
             ],
@@ -307,7 +362,7 @@ class _EmptyTimelineState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Start an activity or retroactively edit the last 30 minutes.',
+              'Log a task for the current slot or adjust recent 30-minute slots.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: const Color(0xFF56635D),

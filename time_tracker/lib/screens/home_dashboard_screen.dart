@@ -31,7 +31,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   int _loggedMinutes = 0;
   int _missingMinutes = 0;
   int _activeStartHour = 7;
-  int _activeEndHour = 23;
+  int _activeEndHour = 24;
   bool _isLoading = true;
 
   @override
@@ -48,36 +48,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   Future<void> _syncReminders() async {
     try {
-      final bool remindersEnabled = await _settingsService.getRemindersEnabled();
-
-      if (remindersEnabled) {
-        final ActivityLog? currentActivity = await _logService.getCurrentActivity();
-        if (currentActivity == null) {
-          await NotificationService.cancelReminder();
-          return;
-        }
-
-        final List<Task> tasks = await _taskService.getTasks();
-        final Task? task = tasks.cast<Task?>().firstWhere(
-          (Task? item) => item?.id == currentActivity.taskId,
-          orElse: () => null,
-        );
-
-        if (task == null) {
-          await NotificationService.cancelReminder();
-          return;
-        }
-
-        await NotificationService.scheduleReminder(
-          when: currentActivity.startTime.add(
-            Duration(minutes: task.defaultMinutes),
-          ),
-          minutes: task.defaultMinutes,
-          taskName: task.name,
-        );
-      } else {
-        await NotificationService.cancelReminder();
-      }
+      await NotificationService.syncReminders();
     } catch (_) {
       // Keep the dashboard usable even if notification setup fails.
     }
@@ -110,6 +81,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       0,
       (int total, int value) => total + value,
     );
+    final int missingMinutes = _calculateMissingMinutes(
+      now,
+      loggedMinutes,
+      activeStartHour,
+      activeEndHour,
+    );
+    if (missingMinutes > 0) {
+      taskMinutes['Unknown'] = missingMinutes;
+    }
     final List<_ActivitySummary> topActivities = taskMinutes.entries
         .map(
           (MapEntry<String, int> entry) => _ActivitySummary(
@@ -130,12 +110,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       _loggedMinutes = loggedMinutes;
       _activeStartHour = activeStartHour;
       _activeEndHour = activeEndHour;
-      _missingMinutes = _calculateMissingMinutes(
-        now,
-        loggedMinutes,
-        activeStartHour,
-        activeEndHour,
-      );
+      _missingMinutes = missingMinutes;
       _topActivities = topActivities.take(3).toList();
       _currentActivity = currentActivity == null
           ? null
@@ -155,14 +130,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     final bool remindersEnabled = await _settingsService.getRemindersEnabled();
     if (remindersEnabled) {
-      await NotificationService.scheduleReminder(
-        when: log.startTime.add(Duration(minutes: task.defaultMinutes)),
-        minutes: task.defaultMinutes,
-        taskName: task.name,
+      await NotificationService.planNextReminder(
+        minutes: task.defaultMinutes > 0 ? task.defaultMinutes : 30,
       );
     } else {
       await NotificationService.cancelReminder();
     }
+    await NotificationService.syncSummaryNotifications();
 
     if (!mounted) {
       return;
@@ -176,7 +150,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Started ${task.name}.'),
+        content: Text('Logged ${task.name} for the current 30-minute slot.'),
       ),
     );
   }
@@ -188,7 +162,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     int endHour,
   ) {
     final DateTime start = DateTime(now.year, now.month, now.day, startHour);
-    final DateTime end = DateTime(now.year, now.month, now.day, endHour);
+    final DateTime end = endHour == 24
+        ? DateTime(now.year, now.month, now.day).add(const Duration(days: 1))
+        : DateTime(now.year, now.month, now.day, endHour);
 
     if (!end.isAfter(start)) {
       return 0;
@@ -287,6 +263,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   String _formatHour(int hour) {
+    if (hour == 24) {
+      return '24:00';
+    }
     final int normalizedHour = hour % 24;
     final int displayHour = normalizedHour % 12 == 0 ? 12 : normalizedHour % 12;
     final String suffix = normalizedHour >= 12 ? 'PM' : 'AM';
@@ -303,6 +282,33 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     return const Color(0xFFC74646);
+  }
+
+  bool _isWithinActiveWindow(DateTime now) {
+    if (_settingsService.isFullDayWindow(_activeStartHour, _activeEndHour)) {
+      return true;
+    }
+
+    final DateTime start = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      _activeStartHour,
+    );
+    final DateTime end = _activeEndHour == 24
+        ? DateTime(now.year, now.month, now.day).add(const Duration(days: 1))
+        : DateTime(
+            now.year,
+            now.month,
+            now.day,
+            _activeEndHour,
+          );
+
+    if (!end.isAfter(start)) {
+      return true;
+    }
+
+    return !now.isBefore(start) && now.isBefore(end);
   }
 
   Future<void> _openScreen(Widget screen) async {
@@ -346,6 +352,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         color: const Color(0xFF7A867F),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    const _FlowHintCard(
+                      title: 'How this works',
+                      message:
+                          'Most of the time you only respond when the notification appears: review the last interval, optionally split it into 5-minute blocks, then choose what comes next.',
+                    ),
                     const SizedBox(height: 20),
                     Row(
                       children: <Widget>[
@@ -380,13 +392,29 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _openRetroEditScreen,
                           icon: const Icon(Icons.history),
-                          label: const Text('Adjust Last 30 Minutes'),
+                          label: const Text('Adjust Recent Slots'),
+                        ),
+                      ),
+                    ],
+                    if (_currentActivity == null && _isWithinActiveWindow(DateTime.now())) ...<Widget>[
+                      const SizedBox(height: 24),
+                      _CurrentActivityCard(
+                        taskName: 'Unknown',
+                        startedAt: _formatClock(_logService.slotStartFor(DateTime.now())),
+                        durationLabel:
+                            _formatDuration(LogService.slotDuration.inMinutes),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'This current 30-minute slot has not been logged yet.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF56635D),
                         ),
                       ),
                     ],
                     const SizedBox(height: 24),
                     Text(
-                      'Quick Log',
+                      'Manual Override',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -417,7 +445,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         children: <Widget>[
                           OutlinedButton(
                             onPressed: _openLogActivityScreen,
-                            child: const Text('More Tasks'),
+                            child: const Text('Log Manually'),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
@@ -520,6 +548,49 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
+class _FlowHintCard extends StatelessWidget {
+  const _FlowHintCard({
+    required this.title,
+    required this.message,
+  });
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF5E8),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFEFD9B5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF56635D),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CurrentActivityCard extends StatelessWidget {
   const _CurrentActivityCard({
     required this.taskName,
@@ -547,7 +618,7 @@ class _CurrentActivityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Currently Doing',
+            'Current Slot',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
             ),
@@ -561,7 +632,7 @@ class _CurrentActivityCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Started $startedAt · $durationLabel so far',
+            '$startedAt for $durationLabel',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
             ),

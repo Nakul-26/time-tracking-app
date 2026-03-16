@@ -1,19 +1,40 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'dart:io';
 
-import 'package:time_tracker/main.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
+
+import 'package:time_tracker/screens/task_list_screen.dart';
 
 Future<void> main() async {
   TestWidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
+  final Directory tempDir = await Directory.systemTemp.createTemp(
+    'time_tracker_test',
+  );
+  Hive.init(tempDir.path);
 
   testWidgets('shows empty task state', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: TaskListScreen(),
+      ),
+    );
+
+    bool foundTaskHeading = false;
+    for (int i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.text('Your Tasks').evaluate().isNotEmpty) {
+        foundTaskHeading = true;
+        break;
+      }
+    }
+
+    expect(foundTaskHeading, isTrue, reason: 'Task list did not finish loading');
+    expect(tester.takeException(), isNull);
 
     expect(find.text('Your Tasks'), findsOneWidget);
     expect(find.text('No tasks yet'), findsOneWidget);
     expect(find.text('Add Task'), findsWidgets);
-    expect(find.text('Log Current Activity'), findsOneWidget);
+    expect(find.text('Manage Tasks'), findsOneWidget);
   });
 }

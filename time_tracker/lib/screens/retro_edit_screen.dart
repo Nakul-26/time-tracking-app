@@ -68,7 +68,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Updated the last 30 minutes')),
+      const SnackBar(content: Text('Updated 5-minute subslots')),
     );
     Navigator.of(context).pop();
   }
@@ -90,7 +90,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     final String? selectedTaskId = _assignments[_selectedBlockIndex];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Adjust Last 30 Minutes')),
+      appBar: AppBar(title: const Text('Adjust Recent Slots')),
       body: _isLoading || windowStart == null
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -100,9 +100,16 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Pick a block, then assign the task you were doing.',
+                      'Assign tasks to the 6 subslots inside this 30-minute window.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Each block below is 5 minutes.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF7A867F),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -129,7 +136,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                               });
                             },
                             child: Container(
-                              width: 150,
+                              width: 110,
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: isSelected
@@ -170,7 +177,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Selected block',
+                      'Selected 5-minute block',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),

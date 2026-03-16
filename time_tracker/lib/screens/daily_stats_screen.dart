@@ -301,10 +301,13 @@ class _DailyStatsScreenState extends State<DailyStatsScreen> {
                         segments: dayTimeline.segments
                             .map(
                               (StatsTimelineSegment segment) => _WeekSegmentView(
-                                label:
-                                    _taskNamesById[segment.taskId] ?? 'Unknown',
+                                label: segment.taskId == StatsService.unknownTaskId
+                                    ? 'Unknown'
+                                    : _taskNamesById[segment.taskId] ?? 'Unknown',
                                 minutes: segment.minutes,
-                                color: _taskColor(segment.taskId),
+                                color: segment.taskId == StatsService.unknownTaskId
+                                    ? const Color(0xFFD7DCD8)
+                                    : _taskColor(segment.taskId),
                                 isActive: segment.isActive,
                               ),
                             )

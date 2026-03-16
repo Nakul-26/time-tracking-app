@@ -4,16 +4,25 @@ import '../models/activity_log.dart';
 
 class LogService {
   static const String _logsBoxName = 'logs';
+  static const Duration slotDuration = Duration(minutes: 30);
   static const Duration retroBlockSize = Duration(minutes: 5);
   static const int retroBlockCount = 6;
-  static const Duration minimumSessionDuration = Duration(seconds: 30);
+  static const Duration minimumLogDuration = Duration(seconds: 5);
 
   Future<void> addLog(ActivityLog log) async {
+    if (!_isLogLongEnough(log)) {
+      return;
+    }
+
     final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
     await box.put(log.id, log.toMap());
   }
 
   Future<void> updateLog(ActivityLog log) async {
+    if (!_isLogLongEnough(log)) {
+      return;
+    }
+
     final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
     await box.put(log.id, log.toMap());
   }
@@ -30,8 +39,8 @@ class LogService {
       final Map<dynamic, dynamic> logMap =
           rawLog is Map<dynamic, dynamic> ? rawLog : <String, dynamic>{};
 
-      return ActivityLog.fromMap(key.toString(), logMap);
-    }).toList();
+      return _normalizeLog(ActivityLog.fromMap(key.toString(), logMap));
+    }).where(_isLogLongEnough).toList();
 
     logs.sort(
       (ActivityLog a, ActivityLog b) => b.startTime.compareTo(a.startTime),
@@ -40,15 +49,14 @@ class LogService {
   }
 
   Future<ActivityLog?> getCurrentActivity([DateTime? now]) async {
-    final List<ActivityLog> logs = await getLogs();
     final DateTime effectiveNow = now ?? DateTime.now();
+    final DateTime slotStart = subslotStartFor(effectiveNow);
+    final DateTime slotEnd = slotStart.add(retroBlockSize);
+    final List<ActivityLog> logs = await getLogs();
 
     for (final ActivityLog log in logs) {
-      if (log.startTime.isAfter(effectiveNow)) {
-        continue;
-      }
-
-      if (log.endTime == null || log.endTime!.isAfter(effectiveNow)) {
+      if (log.startTime.isAtSameMomentAs(slotStart) &&
+          effectiveEndTime(log).isAtSameMomentAs(slotEnd)) {
         return log;
       }
     }
@@ -56,134 +64,90 @@ class LogService {
     return null;
   }
 
-  Future<ActivityLog> startActivity(String taskId, [DateTime? now]) async {
-    final DateTime startTime = now ?? DateTime.now();
-    final ActivityLog? currentActivity = await getCurrentActivity(startTime);
+  Future<ActivityLog?> getLatestOpenActivity([DateTime? now]) {
+    return getCurrentActivity(now);
+  }
 
-    if (currentActivity != null && currentActivity.taskId == taskId) {
+  Future<ActivityLog> startActivity(String taskId, [DateTime? now]) async {
+    final DateTime effectiveNow = now ?? DateTime.now();
+    final DateTime slotStart = subslotStartFor(effectiveNow);
+    final ActivityLog? currentActivity = await getCurrentActivity(effectiveNow);
+
+    if (currentActivity != null &&
+        currentActivity.taskId == taskId &&
+        currentActivity.startTime.isAtSameMomentAs(slotStart)) {
       return currentActivity;
     }
 
-    if (currentActivity != null) {
-      final Duration currentDuration = startTime.difference(
-        currentActivity.startTime,
-      );
+    await assignSlots(slotStart, <String?>[taskId]);
+    return ActivityLog(
+      id: slotStart.toIso8601String(),
+      taskId: taskId,
+      startTime: slotStart,
+      endTime: slotStart.add(retroBlockSize),
+    );
+  }
 
-      if (currentDuration < minimumSessionDuration) {
-        final ActivityLog? previousActivity = await _getPreviousActivity(
-          currentActivity,
+  Future<void> assignSlots(
+    DateTime windowStart,
+    List<String?> taskIds,
+  ) async {
+    final DateTime normalizedStart = subslotStartFor(windowStart);
+    final DateTime windowEnd = normalizedStart.add(
+      Duration(minutes: retroBlockSize.inMinutes * taskIds.length),
+    );
+    final List<ActivityLog> logs = await getLogs();
+    final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
+    final List<ActivityLog> rewrittenLogs = <ActivityLog>[];
+
+    for (final ActivityLog log in logs) {
+      final DateTime logEnd = effectiveEndTime(log);
+      if (!log.startTime.isBefore(windowEnd) || !logEnd.isAfter(normalizedStart)) {
+        rewrittenLogs.add(
+          ActivityLog(
+            id: log.startTime.toIso8601String(),
+            taskId: log.taskId,
+            startTime: log.startTime,
+            endTime: logEnd,
+          ),
         );
+      }
+    }
 
-        if (previousActivity != null && previousActivity.taskId == taskId) {
-          await deleteLog(currentActivity.id);
-
-          final ActivityLog mergedLog = ActivityLog(
-            id: previousActivity.id,
-            taskId: previousActivity.taskId,
-            startTime: previousActivity.startTime,
-            endTime: null,
-          );
-
-          await updateLog(mergedLog);
-          return mergedLog;
-        }
+    for (int index = 0; index < taskIds.length; index += 1) {
+      final String? taskId = taskIds[index];
+      if (taskId == null) {
+        continue;
       }
 
-      await updateLog(
+      final DateTime slotStart = normalizedStart.add(
+        Duration(minutes: index * retroBlockSize.inMinutes),
+      );
+      rewrittenLogs.add(
         ActivityLog(
-          id: currentActivity.id,
-          taskId: currentActivity.taskId,
-          startTime: currentActivity.startTime,
-          endTime: startTime,
+          id: slotStart.toIso8601String(),
+          taskId: taskId,
+          startTime: slotStart,
+          endTime: slotStart.add(retroBlockSize),
         ),
       );
     }
 
-    final ActivityLog log = ActivityLog(
-      id: startTime.toIso8601String(),
-      taskId: taskId,
-      startTime: startTime,
-      endTime: null,
+    rewrittenLogs.sort(
+      (ActivityLog a, ActivityLog b) => a.startTime.compareTo(b.startTime),
     );
 
-    await addLog(log);
-    return log;
-  }
-
-  Future<ActivityLog?> _getPreviousActivity(ActivityLog activityLog) async {
-    final List<ActivityLog> logs = await getLogs();
-
-    for (final ActivityLog log in logs) {
-      if (log.id == activityLog.id) {
-        continue;
-      }
-
-      final DateTime? logEnd = log.endTime;
-      if (logEnd == null) {
-        continue;
-      }
-
-      if (logEnd.isAtSameMomentAs(activityLog.startTime)) {
-        return log;
-      }
+    await box.clear();
+    for (final ActivityLog log in rewrittenLogs) {
+      await box.put(log.id, log.toMap());
     }
-
-    return null;
   }
 
   Future<void> scheduleRetroWindow(
     DateTime windowStart,
     List<String?> taskIds,
   ) async {
-    final DateTime windowEnd = windowStart.add(
-      Duration(minutes: retroBlockSize.inMinutes * taskIds.length),
-    );
-    final List<ActivityLog> logs = await getLogs();
-    final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
-
-    final List<ActivityLog> keptLogs = <ActivityLog>[];
-
-    for (final ActivityLog log in logs) {
-      final DateTime logEnd = log.endTime ?? DateTime.now();
-
-      if (!log.startTime.isBefore(windowEnd) || !logEnd.isAfter(windowStart)) {
-        keptLogs.add(log);
-        continue;
-      }
-
-      if (log.startTime.isBefore(windowStart)) {
-        keptLogs.add(
-          ActivityLog(
-            id: log.id,
-            taskId: log.taskId,
-            startTime: log.startTime,
-            endTime: windowStart,
-          ),
-        );
-      }
-
-      if (logEnd.isAfter(windowEnd)) {
-        keptLogs.add(
-          ActivityLog(
-            id: '${log.id}_after_${windowEnd.toIso8601String()}',
-            taskId: log.taskId,
-            startTime: windowEnd,
-            endTime: log.endTime,
-          ),
-        );
-      }
-    }
-
-    final List<ActivityLog> retroLogs = _buildLogsFromRetroBlocks(
-      windowStart,
-      taskIds,
-    );
-
-    await box.clear();
-
-    for (final ActivityLog log in <ActivityLog>[...keptLogs, ...retroLogs]) {
-      await box.put(log.id, log.toMap());
-    }
+    await assignSlots(windowStart, taskIds);
   }
 
   List<String?> buildRetroBlockAssignments(
@@ -191,19 +155,19 @@ class LogService {
     DateTime windowStart, {
     DateTime? now,
   }) {
-    final DateTime effectiveNow = now ?? DateTime.now();
+    final DateTime normalizedStart = subslotStartFor(windowStart);
     final List<String?> assignments = <String?>[];
 
     for (int index = 0; index < retroBlockCount; index += 1) {
-      final DateTime blockStart =
-          windowStart.add(Duration(minutes: index * retroBlockSize.inMinutes));
+      final DateTime blockStart = normalizedStart.add(
+        Duration(minutes: index * retroBlockSize.inMinutes),
+      );
       final DateTime blockEnd = blockStart.add(retroBlockSize);
 
       String? taskId;
-
       for (final ActivityLog log in logs) {
-        final DateTime logEnd = log.endTime ?? effectiveNow;
-        if (log.startTime.isBefore(blockEnd) && logEnd.isAfter(blockStart)) {
+        if (log.startTime.isAtSameMomentAs(blockStart) &&
+            effectiveEndTime(log).isAtSameMomentAs(blockEnd)) {
           taskId = log.taskId;
           break;
         }
@@ -216,19 +180,17 @@ class LogService {
   }
 
   int durationMinutesForLog(ActivityLog log, {DateTime? now}) {
-    final DateTime effectiveEnd = log.endTime ?? (now ?? DateTime.now());
-    final int minutes = effectiveEnd.difference(log.startTime).inMinutes;
+    final int minutes = effectiveEndTime(log).difference(log.startTime).inMinutes;
     return minutes < 0 ? 0 : minutes;
   }
 
   int overlapMinutesForDay(ActivityLog log, DateTime day, {DateTime? now}) {
     final DateTime startOfDay = DateTime(day.year, day.month, day.day);
     final DateTime endOfDay = startOfDay.add(const Duration(days: 1));
-    final DateTime effectiveEnd = log.endTime ?? (now ?? DateTime.now());
     final DateTime overlapStart =
         log.startTime.isAfter(startOfDay) ? log.startTime : startOfDay;
     final DateTime overlapEnd =
-        effectiveEnd.isBefore(endOfDay) ? effectiveEnd : endOfDay;
+        effectiveEndTime(log).isBefore(endOfDay) ? effectiveEndTime(log) : endOfDay;
 
     if (!overlapEnd.isAfter(overlapStart)) {
       return 0;
@@ -237,58 +199,62 @@ class LogService {
     return overlapEnd.difference(overlapStart).inMinutes;
   }
 
+  DateTime effectiveEndTime(ActivityLog log, {DateTime? now}) {
+    return log.endTime ?? log.startTime.add(retroBlockSize);
+  }
+
+  bool isActivityActive(ActivityLog log, {DateTime? now}) {
+    final DateTime effectiveNow = now ?? DateTime.now();
+    return !effectiveNow.isBefore(log.startTime) &&
+        effectiveNow.isBefore(effectiveEndTime(log));
+  }
+
   DateTime retroWindowStart([DateTime? now]) {
     final DateTime effectiveNow = now ?? DateTime.now();
-    return effectiveNow.subtract(
-      Duration(minutes: retroBlockSize.inMinutes * retroBlockCount),
+    return slotStartFor(effectiveNow);
+  }
+
+  DateTime slotStartFor(DateTime value) {
+    final int minute = value.minute < 30 ? 0 : 30;
+    return DateTime(value.year, value.month, value.day, value.hour, minute);
+  }
+
+  DateTime slotEndFor(DateTime value) {
+    return slotStartFor(value).add(slotDuration);
+  }
+
+  DateTime subslotStartFor(DateTime value) {
+    final int flooredMinute = (value.minute ~/ retroBlockSize.inMinutes) *
+        retroBlockSize.inMinutes;
+    return DateTime(
+      value.year,
+      value.month,
+      value.day,
+      value.hour,
+      flooredMinute,
     );
   }
 
-  List<ActivityLog> _buildLogsFromRetroBlocks(
-    DateTime windowStart,
-    List<String?> taskIds,
-  ) {
-    final List<ActivityLog> logs = <ActivityLog>[];
-    String? activeTaskId;
-    DateTime? activeStart;
+  ActivityLog _normalizeLog(ActivityLog log) {
+    final DateTime normalizedStart = subslotStartFor(log.startTime);
+    final DateTime normalizedEnd = normalizedStart.add(retroBlockSize);
+    final DateTime? endTime = log.endTime;
 
-    for (int index = 0; index < taskIds.length; index += 1) {
-      final String? taskId = taskIds[index];
-      final DateTime blockStart =
-          windowStart.add(Duration(minutes: index * retroBlockSize.inMinutes));
-
-      if (taskId == activeTaskId) {
-        continue;
-      }
-
-      if (activeTaskId != null && activeStart != null) {
-        logs.add(
-          ActivityLog(
-            id: activeStart.toIso8601String(),
-            taskId: activeTaskId,
-            startTime: activeStart,
-            endTime: blockStart,
-          ),
-        );
-      }
-
-      activeTaskId = taskId;
-      activeStart = taskId == null ? null : blockStart;
-    }
-
-    if (activeTaskId != null && activeStart != null) {
-      logs.add(
-        ActivityLog(
-          id: activeStart.toIso8601String(),
-          taskId: activeTaskId,
-          startTime: activeStart,
-          endTime: windowStart.add(
-            Duration(minutes: retroBlockSize.inMinutes * taskIds.length),
-          ),
-        ),
+    if (endTime == null ||
+        !log.startTime.isAtSameMomentAs(normalizedStart) ||
+        !endTime.isAtSameMomentAs(normalizedEnd)) {
+      return ActivityLog(
+        id: normalizedStart.toIso8601String(),
+        taskId: log.taskId,
+        startTime: normalizedStart,
+        endTime: normalizedEnd,
       );
     }
 
-    return logs;
+    return log;
+  }
+
+  bool _isLogLongEnough(ActivityLog log) {
+    return effectiveEndTime(log).difference(log.startTime) >= minimumLogDuration;
   }
 }

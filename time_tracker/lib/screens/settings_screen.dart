@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/task.dart';
-import '../services/log_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
-import '../services/task_service.dart';
-import 'task_list_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,12 +12,17 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final SettingsService _settingsService = SettingsService();
-  final LogService _logService = LogService();
-  final TaskService _taskService = TaskService();
 
   bool _remindersEnabled = true;
+  bool _dailySummaryEnabled = true;
+  bool _weeklySummaryEnabled = true;
   int _activeStartHour = 7;
-  int _activeEndHour = 23;
+  int _activeEndHour = 24;
+  int _dailySummaryHour = 22;
+  int _dailySummaryMinute = 30;
+  int _weeklySummaryWeekday = 7;
+  int _weeklySummaryHour = 21;
+  int _weeklySummaryMinute = 0;
   bool _isLoading = true;
 
   @override
@@ -32,8 +33,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final bool remindersEnabled = await _settingsService.getRemindersEnabled();
+    final bool dailySummaryEnabled =
+        await _settingsService.getDailySummaryEnabled();
+    final bool weeklySummaryEnabled =
+        await _settingsService.getWeeklySummaryEnabled();
     final int activeStartHour = await _settingsService.getActiveStartHour();
     final int activeEndHour = await _settingsService.getActiveEndHour();
+    final int dailySummaryHour = await _settingsService.getDailySummaryHour();
+    final int dailySummaryMinute =
+        await _settingsService.getDailySummaryMinute();
+    final int weeklySummaryWeekday =
+        await _settingsService.getWeeklySummaryWeekday();
+    final int weeklySummaryHour = await _settingsService.getWeeklySummaryHour();
+    final int weeklySummaryMinute =
+        await _settingsService.getWeeklySummaryMinute();
 
     if (!mounted) {
       return;
@@ -41,8 +54,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _remindersEnabled = remindersEnabled;
+      _dailySummaryEnabled = dailySummaryEnabled;
+      _weeklySummaryEnabled = weeklySummaryEnabled;
       _activeStartHour = activeStartHour;
       _activeEndHour = activeEndHour;
+      _dailySummaryHour = dailySummaryHour;
+      _dailySummaryMinute = dailySummaryMinute;
+      _weeklySummaryWeekday = weeklySummaryWeekday;
+      _weeklySummaryHour = weeklySummaryHour;
+      _weeklySummaryMinute = weeklySummaryMinute;
       _isLoading = false;
     });
   }
@@ -55,24 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _settingsService.setRemindersEnabled(enabled);
 
     if (enabled) {
-      final currentActivity = await _logService.getCurrentActivity();
-      if (currentActivity != null) {
-        final List<Task> tasks = await _taskService.getTasks();
-        final Task? task = tasks.cast<Task?>().firstWhere(
-          (Task? item) => item?.id == currentActivity.taskId,
-          orElse: () => null,
-        );
-
-        if (task != null) {
-          await NotificationService.scheduleReminder(
-            when: currentActivity.startTime.add(
-              Duration(minutes: task.defaultMinutes),
-            ),
-            minutes: task.defaultMinutes,
-            taskName: task.name,
-          );
-        }
-      }
+      await NotificationService.syncReminders();
     } else {
       await NotificationService.cancelReminder();
     }
@@ -90,6 +93,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _toggleDailySummary(bool enabled) async {
+    setState(() {
+      _dailySummaryEnabled = enabled;
+    });
+    await _settingsService.setDailySummaryEnabled(enabled);
+    await NotificationService.syncSummaryNotifications();
+  }
+
+  Future<void> _toggleWeeklySummary(bool enabled) async {
+    setState(() {
+      _weeklySummaryEnabled = enabled;
+    });
+    await _settingsService.setWeeklySummaryEnabled(enabled);
+    await NotificationService.syncSummaryNotifications();
   }
 
   Future<void> _sendTestNotification() async {
@@ -120,14 +139,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _openTaskListScreen() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => const TaskListScreen(),
-      ),
-    );
-  }
-
   Future<void> _pickActiveStartHour() async {
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
@@ -138,7 +149,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    if (pickedTime.hour >= _activeEndHour) {
+    if (_activeEndHour != 24 && pickedTime.hour >= _activeEndHour) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Start time must be before end time'),
@@ -159,9 +170,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _pickActiveEndHour() async {
+    final bool? useFullDay = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.access_time),
+                title: const Text('Pick End Time'),
+                onTap: () => Navigator.of(context).pop(false),
+              ),
+              ListTile(
+                leading: const Icon(Icons.all_inclusive),
+                title: const Text('Set to 24:00'),
+                onTap: () => Navigator.of(context).pop(true),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (useFullDay == null) {
+      return;
+    }
+
+    if (useFullDay) {
+      await _settingsService.setActiveEndHour(24);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _activeEndHour = 24;
+      });
+      return;
+    }
+
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: _activeEndHour, minute: 0),
+      initialTime: TimeOfDay(hour: _activeEndHour == 24 ? 23 : _activeEndHour, minute: 0),
     );
 
     if (pickedTime == null) {
@@ -189,10 +240,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String _formatHour(int hour) {
+    if (hour == 24) {
+      return '24:00';
+    }
     return TimeOfDay(hour: hour % 24, minute: 0).format(context);
   }
 
+  String _formatTimeOfDay(int hour, int minute) {
+    return TimeOfDay(hour: hour, minute: minute).format(context);
+  }
+
+  String _weekdayLabel(int weekday) {
+    const List<String> labels = <String>[
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return labels[(weekday - 1).clamp(0, 6)];
+  }
+
   int _trackingWindowHours() {
+    if (_settingsService.isFullDayWindow(_activeStartHour, _activeEndHour)) {
+      return 24;
+    }
     return _activeEndHour - _activeStartHour;
   }
 
@@ -206,6 +280,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(20),
               children: <Widget>[
                 Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF1F8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFD5E1EE)),
+                  ),
+                  child: const Text(
+                    'Use this page only for reminders and active hours. Manage tasks from the Tasks tab.',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
@@ -214,7 +301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: SwitchListTile(
                     title: const Text('Reminder Notifications'),
                     subtitle: const Text(
-                      'Use each task’s default reminder length for the next check-in.',
+                      'Primary workflow: wait for the notification, review the last interval, then choose what is next.',
                     ),
                     value: _remindersEnabled,
                     onChanged: _toggleReminders,
@@ -266,14 +353,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0xFFE1E7E2)),
                   ),
-                  child: ListTile(
-                    leading: const Icon(Icons.checklist),
-                    title: const Text('Manage Tasks'),
-                    subtitle: const Text(
-                      'Add, edit, delete, and organize reusable tasks.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: _openTaskListScreen,
+                  child: Column(
+                    children: <Widget>[
+                      SwitchListTile(
+                        title: const Text('Enable Daily Summary'),
+                        subtitle: Text(
+                          'Daily Summary: ${_formatTimeOfDay(_dailySummaryHour, _dailySummaryMinute)}',
+                        ),
+                        value: _dailySummaryEnabled,
+                        onChanged: _toggleDailySummary,
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.today),
+                        title: const Text('Daily Summary Time'),
+                        subtitle: Text(
+                          _formatTimeOfDay(
+                            _dailySummaryHour,
+                            _dailySummaryMinute,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final TimeOfDay? picked = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay(
+                              hour: _dailySummaryHour,
+                              minute: _dailySummaryMinute,
+                            ),
+                          );
+                          if (picked == null) {
+                            return;
+                          }
+                          await _settingsService.setDailySummaryTime(
+                            hour: picked.hour,
+                            minute: picked.minute,
+                          );
+                          await NotificationService.syncSummaryNotifications();
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _dailySummaryHour = picked.hour;
+                            _dailySummaryMinute = picked.minute;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE1E7E2)),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      SwitchListTile(
+                        title: const Text('Enable Weekly Summary'),
+                        subtitle: Text(
+                          'Weekly Summary: ${_weekdayLabel(_weeklySummaryWeekday)} ${_formatTimeOfDay(_weeklySummaryHour, _weeklySummaryMinute)}',
+                        ),
+                        value: _weeklySummaryEnabled,
+                        onChanged: _toggleWeeklySummary,
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.date_range),
+                        title: const Text('Weekly Summary Day'),
+                        subtitle: Text(_weekdayLabel(_weeklySummaryWeekday)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final int? selected = await showModalBottomSheet<int>(
+                            context: context,
+                            builder: (BuildContext context) {
+                              return SafeArea(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List<Widget>.generate(7, (index) {
+                                    final int weekday = index + 1;
+                                    return ListTile(
+                                      title: Text(_weekdayLabel(weekday)),
+                                      onTap: () =>
+                                          Navigator.of(context).pop(weekday),
+                                    );
+                                  }),
+                                ),
+                              );
+                            },
+                          );
+                          if (selected == null) {
+                            return;
+                          }
+                          await _settingsService.setWeeklySummarySchedule(
+                            weekday: selected,
+                            hour: _weeklySummaryHour,
+                            minute: _weeklySummaryMinute,
+                          );
+                          await NotificationService.syncSummaryNotifications();
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _weeklySummaryWeekday = selected;
+                          });
+                        },
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.query_builder),
+                        title: const Text('Weekly Summary Time'),
+                        subtitle: Text(
+                          _formatTimeOfDay(
+                            _weeklySummaryHour,
+                            _weeklySummaryMinute,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final TimeOfDay? picked = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay(
+                              hour: _weeklySummaryHour,
+                              minute: _weeklySummaryMinute,
+                            ),
+                          );
+                          if (picked == null) {
+                            return;
+                          }
+                          await _settingsService.setWeeklySummarySchedule(
+                            weekday: _weeklySummaryWeekday,
+                            hour: picked.hour,
+                            minute: picked.minute,
+                          );
+                          await NotificationService.syncSummaryNotifications();
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _weeklySummaryHour = picked.hour;
+                            _weeklySummaryMinute = picked.minute;
+                          });
+                        },
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),

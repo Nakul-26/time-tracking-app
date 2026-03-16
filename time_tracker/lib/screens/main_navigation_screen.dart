@@ -3,22 +3,34 @@ import 'package:flutter/material.dart';
 import 'daily_stats_screen.dart';
 import 'home_dashboard_screen.dart';
 import 'settings_screen.dart';
+import 'task_list_screen.dart';
 import 'today_timeline_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final int initialIndex;
+
+  const MainNavigationScreen({
+    super.key,
+    this.initialIndex = 0,
+  });
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+  }
 
   static const List<Widget> _screens = <Widget>[
     HomeDashboardScreen(),
     TodayTimelineScreen(),
     DailyStatsScreen(),
+    TaskListScreen(),
     SettingsScreen(),
   ];
 
@@ -51,6 +63,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
             label: 'Stats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.task_outlined),
+            selectedIcon: Icon(Icons.task),
+            label: 'Tasks',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

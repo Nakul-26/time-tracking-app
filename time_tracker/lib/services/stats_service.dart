@@ -43,6 +43,8 @@ class StatsHeatmapDay {
 class StatsService {
   StatsService(this._logService, this._settingsService);
 
+  static const String unknownTaskId = '__unknown__';
+
   final LogService _logService;
   final SettingsService _settingsService;
 
@@ -93,7 +95,10 @@ class StatsService {
       Duration dayTotal = Duration.zero;
 
       for (final ActivityLog log in logs) {
-        final DateTime sessionEnd = log.endTime ?? DateTime.now();
+        final DateTime sessionEnd = _logService.effectiveEndTime(
+          log,
+          now: DateTime.now(),
+        );
         dayTotal += clipSession(log.startTime, sessionEnd, dayStart, dayEnd);
       }
 
@@ -114,8 +119,10 @@ class StatsService {
     for (int dayIndex = 0; dayIndex < 7; dayIndex += 1) {
       final DateTime day = weekStart.add(Duration(days: dayIndex));
       final DateTime windowStart = DateTime(day.year, day.month, day.day, startHour);
-      final DateTime windowEnd = DateTime(day.year, day.month, day.day, endHour);
-      final List<StatsTimelineSegment> segments = logs
+      final DateTime windowEnd = endHour == 24
+          ? DateTime(day.year, day.month, day.day).add(const Duration(days: 1))
+          : DateTime(day.year, day.month, day.day, endHour);
+      final List<StatsTimelineSegment> loggedSegments = logs
           .map(
             (ActivityLog log) => _clipLogToSegment(
               log,
@@ -127,6 +134,12 @@ class StatsService {
           .whereType<StatsTimelineSegment>()
           .toList()
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
+      final List<StatsTimelineSegment> segments = _withUnknownSegments(
+        loggedSegments,
+        windowStart,
+        windowEnd,
+        now,
+      );
 
       timeline.add(
         StatsWeekdayTimeline(
@@ -155,7 +168,7 @@ class StatsService {
       Duration total = Duration.zero;
 
       for (final ActivityLog log in logs) {
-        final DateTime end = log.endTime ?? now;
+        final DateTime end = _logService.effectiveEndTime(log, now: now);
         total += clipSession(log.startTime, end, dayStart, dayEnd);
       }
 
@@ -222,6 +235,9 @@ class StatsService {
   Future<Duration> activeWindowDuration() async {
     final int startHour = await _settingsService.getActiveStartHour();
     final int endHour = await _settingsService.getActiveEndHour();
+    if (_settingsService.isFullDayWindow(startHour, endHour)) {
+      return const Duration(hours: 24);
+    }
     if (endHour <= startHour) {
       return Duration.zero;
     }
@@ -238,7 +254,7 @@ class StatsService {
     final Map<String, Duration> totals = <String, Duration>{};
 
     for (final ActivityLog log in logs) {
-      final DateTime sessionEnd = log.endTime ?? now;
+      final DateTime sessionEnd = _logService.effectiveEndTime(log, now: now);
       final Duration duration = clipSession(
         log.startTime,
         sessionEnd,
@@ -266,7 +282,7 @@ class StatsService {
     DateTime rangeEnd,
     DateTime now,
   ) {
-    final DateTime effectiveEnd = log.endTime ?? now;
+    final DateTime effectiveEnd = _logService.effectiveEndTime(log, now: now);
     final DateTime clippedStart =
         log.startTime.isBefore(rangeStart) ? rangeStart : log.startTime;
     final DateTime clippedEnd =
@@ -280,17 +296,62 @@ class StatsService {
       taskId: log.taskId,
       startTime: clippedStart,
       endTime: clippedEnd,
-      isActive: log.endTime == null,
+      isActive: _logService.isActivityActive(log, now: now),
     );
+  }
+
+  List<StatsTimelineSegment> _withUnknownSegments(
+    List<StatsTimelineSegment> segments,
+    DateTime windowStart,
+    DateTime windowEnd,
+    DateTime now,
+  ) {
+    final List<StatsTimelineSegment> filledSegments = <StatsTimelineSegment>[];
+    DateTime cursor = windowStart;
+    final DateTime effectiveEnd = now.isBefore(windowEnd) ? now : windowEnd;
+
+    for (final StatsTimelineSegment segment in segments) {
+      if (segment.startTime.isAfter(cursor)) {
+        filledSegments.add(
+          StatsTimelineSegment(
+            taskId: unknownTaskId,
+            startTime: cursor,
+            endTime: segment.startTime,
+            isActive: !now.isBefore(cursor) && now.isBefore(segment.startTime),
+          ),
+        );
+      }
+
+      filledSegments.add(segment);
+      if (segment.endTime.isAfter(cursor)) {
+        cursor = segment.endTime;
+      }
+    }
+
+    if (effectiveEnd.isAfter(cursor)) {
+      filledSegments.add(
+        StatsTimelineSegment(
+          taskId: unknownTaskId,
+          startTime: cursor,
+          endTime: effectiveEnd,
+          isActive: !now.isBefore(cursor) && now.isBefore(effectiveEnd),
+        ),
+      );
+    }
+
+    return filledSegments;
   }
 
   Future<int> _expectedActiveMinutesForDay(DateTime date) async {
     final int startHour = await _settingsService.getActiveStartHour();
     final int endHour = await _settingsService.getActiveEndHour();
     final DateTime dayStart = DateTime(date.year, date.month, date.day, startHour);
-    final DateTime dayEnd = DateTime(date.year, date.month, date.day, endHour);
+    final DateTime dayEnd = endHour == 24
+        ? DateTime(date.year, date.month, date.day).add(const Duration(days: 1))
+        : DateTime(date.year, date.month, date.day, endHour);
 
-    if (!dayEnd.isAfter(dayStart)) {
+    if (!_settingsService.isFullDayWindow(startHour, endHour) &&
+        !dayEnd.isAfter(dayStart)) {
       return 0;
     }
 
