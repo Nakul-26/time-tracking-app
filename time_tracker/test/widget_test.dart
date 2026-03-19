@@ -21,8 +21,11 @@ Future<void> main() async {
     );
 
     bool foundTaskHeading = false;
-    for (int i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
+    for (int i = 0; i < 20; i += 1) {
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
       if (find.text('Your Tasks').evaluate().isNotEmpty) {
         foundTaskHeading = true;
         break;

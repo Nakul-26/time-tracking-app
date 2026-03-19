@@ -171,10 +171,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _requestExactAlarmPermission() async {
+  Future<void> _scheduleTestNotification() async {
     try {
-      final bool granted =
-          await NotificationService.requestExactAlarmPermission();
+      await NotificationService.scheduleDebugNotification();
+      final String status = await NotificationService.reminderDebugStatus();
 
       if (!mounted) {
         return;
@@ -183,10 +183,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            granted
-                ? 'Exact alarm access enabled'
-                : 'Exact alarm access is still disabled',
+            'Scheduled test notification for 15 seconds. $status',
           ),
+          duration: const Duration(seconds: 6),
         ),
       );
     } catch (error) {
@@ -198,7 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         builder: (BuildContext context) {
           return AlertDialog(
-            title: const Text('Exact Alarm Failed'),
+            title: const Text('Scheduled Test Failed'),
             content: SelectableText(error.toString()),
             actions: <Widget>[
               TextButton(
@@ -593,13 +592,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(
-                  onPressed: _showPendingCount,
-                  child: const Text('Show Pending Notification Count'),
+                  onPressed: _scheduleTestNotification,
+                  child: const Text('Schedule Test Notification (15s)'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(
-                  onPressed: _requestExactAlarmPermission,
-                  child: const Text('Enable Exact Alarm Access'),
+                  onPressed: _showPendingCount,
+                  child: const Text('Show Next Reminder'),
                 ),
               ],
             ),
