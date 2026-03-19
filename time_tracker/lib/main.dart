@@ -17,18 +17,9 @@ Future<void> notificationTapBackground(NotificationResponse response) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
+  await NotificationService.init(appNavigatorKey);
   runApp(const MyApp());
-  unawaited(_initializeAppServices());
-}
-
-Future<void> _initializeAppServices() async {
-  try {
-    await NotificationService.init(appNavigatorKey);
-    await NotificationService.syncReminders();
-  } catch (error, stackTrace) {
-    debugPrint('Startup service initialization failed: $error');
-    debugPrintStack(stackTrace: stackTrace);
-  }
+  unawaited(NotificationService.syncReminders());
 }
 
 class MyApp extends StatelessWidget {

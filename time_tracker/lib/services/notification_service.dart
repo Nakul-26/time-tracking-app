@@ -12,6 +12,11 @@ import 'task_service.dart';
 import '../models/task.dart';
 import '../screens/main_navigation_screen.dart';
 
+@pragma('vm:entry-point')
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  await NotificationService.handleNotificationResponse(response);
+}
+
 class NotificationService {
   NotificationService._();
 
@@ -69,7 +74,7 @@ class NotificationService {
     await _notificationsPlugin.initialize(
       settings,
       onDidReceiveNotificationResponse: handleNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse: handleNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     await _requestPermissions();
@@ -95,6 +100,21 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
 
     await androidImplementation?.requestNotificationsPermission();
+  }
+
+  static Future<bool> requestExactAlarmPermission() async {
+    await _ensureInitialized();
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    final bool canScheduleExact =
+        await androidImplementation?.canScheduleExactNotifications() ?? false;
+    if (canScheduleExact) {
+      return true;
+    }
+
+    await androidImplementation?.requestExactAlarmsPermission();
+    return await androidImplementation?.canScheduleExactNotifications() ?? false;
   }
 
   static Future<void> cancelReminder() async {
@@ -186,6 +206,9 @@ class NotificationService {
             ? durationMinutes
             : _reminderIntervalMinutes;
 
+    await _settingsService.setNextReminderAt(scheduledAt);
+    await _settingsService.setNextReminderDurationMinutes(effectiveDuration);
+
     await _scheduleReviewReminder(
       scheduledAt: scheduledAt,
       durationMinutes: effectiveDuration,
@@ -220,6 +243,24 @@ class NotificationService {
     final List<PendingNotificationRequest> pending =
         await _notificationsPlugin.pendingNotificationRequests();
     return pending.length;
+  }
+
+  static Future<String> reminderDebugStatus() async {
+    await _ensureInitialized();
+    final DateTime? nextReminderAt = await _settingsService.getNextReminderAt();
+    final int durationMinutes =
+        await _settingsService.getNextReminderDurationMinutes();
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    final bool canScheduleExact =
+        await androidImplementation?.canScheduleExactNotifications() ?? false;
+
+    final String nextReminderLabel = nextReminderAt == null
+        ? 'none'
+        : _formatReminderDateTime(nextReminderAt.toLocal());
+
+    return 'next=$nextReminderLabel, duration=${durationMinutes}m, exact=$canScheduleExact';
   }
 
   static Future<void> _ensureInitialized() async {
@@ -419,11 +460,22 @@ class NotificationService {
       'What did you do from ${_formatTime(rangeStart)}-${_formatTime(scheduledAt)}?',
       tz.TZDateTime.from(scheduledAt, tz.local),
       notificationDetails,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      androidScheduleMode: await _reviewScheduleMode(),
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       payload: '$_reviewPayloadPrefix${scheduledAt.toIso8601String()}',
     );
+  }
+
+  static Future<AndroidScheduleMode> _reviewScheduleMode() async {
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    final bool canScheduleExact =
+        await androidImplementation?.canScheduleExactNotifications() ?? false;
+    return canScheduleExact
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
   static Future<void> _showNextTaskPrompt() async {
@@ -719,6 +771,13 @@ class NotificationService {
     final String minute = value.minute.toString().padLeft(2, '0');
     final String suffix = value.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $suffix';
+  }
+
+  static String _formatReminderDateTime(DateTime value) {
+    final String day = value.day.toString().padLeft(2, '0');
+    final String month = value.month.toString().padLeft(2, '0');
+    final String year = value.year.toString();
+    return '$day-$month-$year, ${_formatTime(value)}, ${_weekdayName(value.weekday - 1)}';
   }
 
   static Future<void> _openStatsScreen({required int initialIndex}) async {

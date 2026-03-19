@@ -1,0 +1,30 @@
+.env
+gitignore
+
+# IDE and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Flutter / Dart
+time_tracker/.dart_tool/
+time_tracker/.flutter-plugins
+time_tracker/.flutter-plugins-dependencies
+time_tracker/.packages
+time_tracker/.pub/
+time_tracker/build/
+
+# Generated platform artifacts
+time_tracker/android/.gradle/
+time_tracker/android/app/debug/
+time_tracker/android/app/profile/
+time_tracker/android/app/release/
+time_tracker/ios/Flutter/ephemeral/
+time_tracker/ios/Pods/
+time_tracker/ios/.symlinks/
+time_tracker/macos/Flutter/ephemeral/
+time_tracker/macos/Pods/
+time_tracker/macos/.symlinks/
+time_tracker/linux/flutter/ephemeral/
+time_tracker/windows/flutter/ephemeral/

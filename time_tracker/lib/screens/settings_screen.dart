@@ -126,17 +126,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showPendingCount() async {
-    final int pendingCount = await NotificationService.pendingReminderCount();
+    try {
+      final String status = await NotificationService.reminderDebugStatus();
 
-    if (!mounted) {
-      return;
+      if (!mounted) {
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Reminder Status'),
+            content: SelectableText(status),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Reminder Status Failed'),
+            content: SelectableText(error.toString()),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
     }
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Pending notifications: $pendingCount'),
-      ),
-    );
+  Future<void> _requestExactAlarmPermission() async {
+    try {
+      final bool granted =
+          await NotificationService.requestExactAlarmPermission();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            granted
+                ? 'Exact alarm access enabled'
+                : 'Exact alarm access is still disabled',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Exact Alarm Failed'),
+            content: SelectableText(error.toString()),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    }
   }
 
   Future<void> _pickActiveStartHour() async {
@@ -522,6 +595,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 OutlinedButton(
                   onPressed: _showPendingCount,
                   child: const Text('Show Pending Notification Count'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _requestExactAlarmPermission,
+                  child: const Text('Enable Exact Alarm Access'),
                 ),
               ],
             ),
