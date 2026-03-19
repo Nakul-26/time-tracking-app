@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -42,6 +43,9 @@ class NotificationService {
   static const String _reviewPayloadPrefix = 'review:';
   static const String _dailySummaryPayload = 'summary:daily';
   static const String _weeklySummaryPayload = 'summary:weekly';
+  static const MethodChannel _timezoneChannel = MethodChannel(
+    'time_tracker/timezone',
+  );
 
   static Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     _navigatorKey = navigatorKey;
@@ -54,7 +58,7 @@ class NotificationService {
   }
 
   static Future<void> _initialize(GlobalKey<NavigatorState> navigatorKey) async {
-    tz.initializeTimeZones();
+    await _configureLocalTimeZone();
 
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -69,6 +73,20 @@ class NotificationService {
     );
 
     await _requestPermissions();
+  }
+
+  static Future<void> _configureLocalTimeZone() async {
+    tz.initializeTimeZones();
+    try {
+      final String? timezoneName = await _timezoneChannel.invokeMethod<String>(
+        'getLocalTimezone',
+      );
+      if (timezoneName != null && timezoneName.isNotEmpty) {
+        tz.setLocalLocation(tz.getLocation(timezoneName));
+      }
+    } catch (_) {
+      // Fall back to the package default if the platform timezone lookup fails.
+    }
   }
 
   static Future<void> _requestPermissions() async {
