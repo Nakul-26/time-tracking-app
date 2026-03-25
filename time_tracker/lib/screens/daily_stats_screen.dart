@@ -204,7 +204,7 @@ class _DailyStatsScreenState extends State<DailyStatsScreen> {
     final ThemeData theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Today's Stats")),
+      appBar: AppBar(title: const Text('Insights')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(

@@ -50,19 +50,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         },
         destinations: const <NavigationDestination>[
           NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+            icon: Icon(Icons.flash_on_outlined),
+            selectedIcon: Icon(Icons.flash_on),
+            label: 'Check-In',
           ),
           NavigationDestination(
             icon: Icon(Icons.timeline_outlined),
             selectedIcon: Icon(Icons.timeline),
-            label: 'Timeline',
+            label: 'Today',
           ),
           NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
-            label: 'Stats',
+            label: 'Insights',
           ),
           NavigationDestination(
             icon: Icon(Icons.task_outlined),

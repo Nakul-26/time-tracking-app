@@ -17,6 +17,8 @@ time_tracker/build/
 
 # Generated platform artifacts
 time_tracker/android/.gradle/
+time_tracker/android/build/
+time_tracker/android/**/build/
 time_tracker/android/app/debug/
 time_tracker/android/app/profile/
 time_tracker/android/app/release/

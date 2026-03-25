@@ -226,7 +226,7 @@ class _TaskCard extends StatelessWidget {
                     ],
                     const SizedBox(height: 6),
                     Text(
-                      'Next reminder: ${task.defaultMinutes} min',
+                      'Suggested session: ${task.defaultMinutes} min',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
@@ -490,14 +490,14 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _submit(),
               decoration: const InputDecoration(
-                labelText: 'Next reminder after (minutes)',
+                labelText: 'Suggested session length (minutes)',
                 hintText: '30',
                 border: OutlineInputBorder(),
               ),
               validator: (String? value) {
                 final int? minutes = int.tryParse(value?.trim() ?? '');
                 if (minutes == null || minutes <= 0) {
-                  return 'Enter reminder minutes';
+                  return 'Enter session minutes';
                 }
                 if (minutes > 720) {
                   return 'Use 720 minutes or less';
@@ -507,7 +507,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Used for the "What will you do next?" reminder. The tracking view still supports 5-minute blocks.',
+              'Used as a lightweight default for planning and review. Logging still works in short check-in blocks.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF56635D),
                   ),

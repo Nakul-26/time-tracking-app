@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../models/activity_log.dart';
 import '../models/task.dart';
 import '../services/log_service.dart';
-import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_service.dart';
 import 'log_activity_screen.dart';
@@ -26,6 +25,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   List<_ActivitySummary> _topActivities = const <_ActivitySummary>[];
   List<Task> _tasks = const <Task>[];
+  List<String> _recentTaskIds = const <String>[];
   _CurrentActivitySummary? _currentActivity;
   String? _selectedTaskId;
   int _loggedMinutes = 0;
@@ -37,26 +37,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeDashboard();
-  }
-
-  Future<void> _initializeDashboard() async {
-    await _loadDashboard();
-
-    unawaited(_syncReminders());
-  }
-
-  Future<void> _syncReminders() async {
-    try {
-      await NotificationService.syncReminders();
-    } catch (_) {
-      // Keep the dashboard usable even if notification setup fails.
-    }
+    _loadDashboard();
   }
 
   Future<void> _loadDashboard() async {
     final List<ActivityLog> logs = await _logService.getLogs();
     final List<Task> tasks = await _taskService.getTasks();
+    final List<String> recentTaskIds = _buildRecentTaskIds(logs);
     final String? selectedTaskId = await _taskService.getSelectedTaskId();
     final int activeStartHour = await _settingsService.getActiveStartHour();
     final int activeEndHour = await _settingsService.getActiveEndHour();
@@ -106,6 +93,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     setState(() {
       _tasks = tasks;
+      _recentTaskIds = recentTaskIds;
       _selectedTaskId = selectedTaskId;
       _loggedMinutes = loggedMinutes;
       _activeStartHour = activeStartHour;
@@ -128,16 +116,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     await _logService.startActivity(task.id);
     await _taskService.setSelectedTaskId(task.id);
 
-    final bool remindersEnabled = await _settingsService.getRemindersEnabled();
-    if (remindersEnabled) {
-      await NotificationService.planNextReminder(
-        minutes: task.defaultMinutes > 0 ? task.defaultMinutes : 30,
-      );
-    } else {
-      await NotificationService.cancelReminder();
-    }
-    await NotificationService.syncSummaryNotifications();
-
     if (!mounted) {
       return;
     }
@@ -150,7 +128,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Logged ${task.name} for the current 30-minute slot.'),
+        content: Text('Logged ${task.name} for this check-in block.'),
       ),
     );
   }
@@ -223,6 +201,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
 
+    for (final String recentTaskId in _recentTaskIds) {
+      final Task? recentTask = _tasks.cast<Task?>().firstWhere(
+        (Task? task) => task?.id == recentTaskId,
+        orElse: () => null,
+      );
+      if (recentTask != null && addedIds.add(recentTask.id)) {
+        prioritizedTasks.add(recentTask);
+      }
+
+      if (prioritizedTasks.length >= 4) {
+        break;
+      }
+    }
+
     for (final Task task in _tasks) {
       if (addedIds.add(task.id)) {
         prioritizedTasks.add(task);
@@ -234,6 +226,23 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     return prioritizedTasks;
+  }
+
+  List<String> _buildRecentTaskIds(List<ActivityLog> logs) {
+    final List<String> taskIds = <String>[];
+    final Set<String> seen = <String>{};
+
+    for (final ActivityLog log in logs) {
+      if (seen.add(log.taskId)) {
+        taskIds.add(log.taskId);
+      }
+
+      if (taskIds.length >= 3) {
+        break;
+      }
+    }
+
+    return taskIds;
   }
 
   String _formatClock(DateTime value) {
@@ -326,10 +335,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final DateTime now = DateTime.now();
+    final DateTime currentWindowStart = _logService.slotStartFor(now);
+    final DateTime currentWindowEnd = _logService.slotEndFor(now);
+    final bool insideActiveWindow = _isWithinActiveWindow(now);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Today'),
+        title: const Text('Check-In'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -340,7 +353,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   padding: const EdgeInsets.all(20),
                   children: <Widget>[
                     Text(
-                      'Your day at a glance.',
+                      'Open the app when your external alarm rings and log the last stretch quickly.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
@@ -353,10 +366,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const _FlowHintCard(
-                      title: 'How this works',
-                      message:
-                          'Most of the time you only respond when the notification appears: review the last interval, optionally split it into 5-minute blocks, then choose what comes next.',
+                    _CheckInHeroCard(
+                      timeRange:
+                          '${_formatClock(currentWindowStart)} - ${_formatClock(currentWindowEnd)}',
+                      hasTasks: _tasks.isNotEmpty,
+                      insideActiveWindow: insideActiveWindow,
+                      onPrimaryTap:
+                          _tasks.isEmpty ? _openTaskListScreen : _openLogActivityScreen,
+                      onSecondaryTap: _openRetroEditScreen,
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -381,6 +398,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     if (_currentActivity != null) ...<Widget>[
                       const SizedBox(height: 24),
                       _CurrentActivityCard(
+                        title: 'Latest Check-In',
                         taskName: _currentActivity!.taskName,
                         startedAt: _formatClock(_currentActivity!.startedAt),
                         durationLabel:
@@ -396,17 +414,18 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ),
                       ),
                     ],
-                    if (_currentActivity == null && _isWithinActiveWindow(DateTime.now())) ...<Widget>[
+                    if (_currentActivity == null && insideActiveWindow) ...<Widget>[
                       const SizedBox(height: 24),
                       _CurrentActivityCard(
+                        title: 'Ready To Log',
                         taskName: 'Unknown',
-                        startedAt: _formatClock(_logService.slotStartFor(DateTime.now())),
+                        startedAt: _formatClock(_logService.subslotStartFor(now)),
                         durationLabel:
-                            _formatDuration(LogService.slotDuration.inMinutes),
+                            _formatDuration(LogService.retroBlockSize.inMinutes),
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'This current 30-minute slot has not been logged yet.',
+                        'Nothing is logged for the current check-in block yet.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF56635D),
                         ),
@@ -414,7 +433,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     ],
                     const SizedBox(height: 24),
                     Text(
-                      'Manual Override',
+                      'Quick Picks',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -423,19 +442,50 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     if (_tasks.isEmpty)
                       const _EmptyQuickLogState()
                     else ...<Widget>[
+                      Text(
+                        'Your most likely answers are surfaced first so check-in stays nearly one tap.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF56635D),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
+                        spacing: 12,
+                        runSpacing: 12,
                         children: _quickLogTasks()
                             .map(
-                              (Task task) => ActionChip(
-                                avatar: const Icon(
-                                  Icons.bolt,
-                                  size: 18,
-                                  color: Color(0xFF1E847F),
+                              (Task task) => SizedBox(
+                                width: 172,
+                                child: FilledButton.icon(
+                                  onPressed: () => _startActivity(task),
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 18,
+                                    ),
+                                    backgroundColor: task.id == _selectedTaskId
+                                        ? const Color(0xFF1E847F)
+                                        : Colors.white,
+                                    foregroundColor: task.id == _selectedTaskId
+                                        ? Colors.white
+                                        : const Color(0xFF15201B),
+                                    side: BorderSide(
+                                      color: task.id == _selectedTaskId
+                                          ? const Color(0xFF1E847F)
+                                          : const Color(0xFFE1E7E2),
+                                    ),
+                                    alignment: Alignment.centerLeft,
+                                  ),
+                                  icon: Icon(
+                                    task.id == _selectedTaskId
+                                        ? Icons.check_circle
+                                        : Icons.bolt,
+                                  ),
+                                  label: Text(
+                                    task.name,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                                label: Text(task.name),
-                                onPressed: () => _startActivity(task),
                               ),
                             )
                             .toList(),
@@ -445,7 +495,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         children: <Widget>[
                           OutlinedButton(
                             onPressed: _openLogActivityScreen,
-                            child: const Text('Log Manually'),
+                            child: const Text('Open Full Check-In'),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
@@ -457,7 +507,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     ],
                     const SizedBox(height: 24),
                     Text(
-                      'Top Activities',
+                      'Today So Far',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -548,56 +598,15 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _FlowHintCard extends StatelessWidget {
-  const _FlowHintCard({
-    required this.title,
-    required this.message,
-  });
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF5E8),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFEFD9B5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            title,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            message,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF56635D),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CurrentActivityCard extends StatelessWidget {
   const _CurrentActivityCard({
+    required this.title,
     required this.taskName,
     required this.startedAt,
     required this.durationLabel,
   });
 
+  final String title;
   final String taskName;
   final String startedAt;
   final String durationLabel;
@@ -618,7 +627,7 @@ class _CurrentActivityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Current Slot',
+            title,
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
             ),
@@ -712,7 +721,7 @@ class _EmptyDashboardState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Use Log Activity to start building your day summary.',
+            'Start with a quick check-in and this screen will turn into your day summary.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyLarge?.copyWith(
               color: const Color(0xFF56635D),
@@ -740,10 +749,113 @@ class _EmptyQuickLogState extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE1E7E2)),
       ),
       child: Text(
-        'Create tasks first, then logging becomes one tap from this screen.',
+        'Create a few tasks first. After that, check-ins from this screen become nearly one tap.',
         style: theme.textTheme.bodyLarge?.copyWith(
           color: const Color(0xFF56635D),
         ),
+      ),
+    );
+  }
+}
+
+class _CheckInHeroCard extends StatelessWidget {
+  const _CheckInHeroCard({
+    required this.timeRange,
+    required this.hasTasks,
+    required this.insideActiveWindow,
+    required this.onPrimaryTap,
+    required this.onSecondaryTap,
+  });
+
+  final String timeRange;
+  final bool hasTasks;
+  final bool insideActiveWindow;
+  final VoidCallback onPrimaryTap;
+  final VoidCallback onSecondaryTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final String headline = !insideActiveWindow
+        ? 'Outside your tracking window'
+        : hasTasks
+            ? 'What did you just do?'
+            : 'Create tasks before your first check-in';
+    final String body = !insideActiveWindow
+        ? 'You can still log manually, but the dashboard is currently outside your normal active hours.'
+        : hasTasks
+            ? 'Review $timeRange, tap the best match, and keep moving.'
+            : 'Add a short task list like Coding, Study, Break, and Meetings so logging stays fast.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: <Color>[Color(0xFF1E847F), Color(0xFF2F6DA3)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Current window',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            timeRange,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            headline,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: Colors.white.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: <Widget>[
+              FilledButton.icon(
+                onPressed: onPrimaryTap,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF0E3B39),
+                ),
+                icon: Icon(hasTasks ? Icons.edit_calendar : Icons.add_task),
+                label: Text(hasTasks ? 'Start Check-In' : 'Create Tasks'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onSecondaryTap,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white54),
+                ),
+                icon: const Icon(Icons.history),
+                label: const Text('Review Recent Blocks'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

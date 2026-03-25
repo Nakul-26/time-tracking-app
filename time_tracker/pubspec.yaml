@@ -10,12 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  flutter_local_notifications: ^17.2.4
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-  timezone: ^0.9.4
-  workmanager: ^0.6.0
-  flutter_foreground_task: ^6.5.0
 
 dev_dependencies:
   flutter_test:

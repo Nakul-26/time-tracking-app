@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -13,16 +12,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final SettingsService _settingsService = SettingsService();
 
-  bool _remindersEnabled = true;
-  bool _dailySummaryEnabled = true;
-  bool _weeklySummaryEnabled = true;
   int _activeStartHour = 7;
   int _activeEndHour = 24;
-  int _dailySummaryHour = 22;
-  int _dailySummaryMinute = 30;
-  int _weeklySummaryWeekday = 7;
-  int _weeklySummaryHour = 21;
-  int _weeklySummaryMinute = 0;
   bool _isLoading = true;
 
   @override
@@ -32,183 +23,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final bool remindersEnabled = await _settingsService.getRemindersEnabled();
-    final bool dailySummaryEnabled =
-        await _settingsService.getDailySummaryEnabled();
-    final bool weeklySummaryEnabled =
-        await _settingsService.getWeeklySummaryEnabled();
     final int activeStartHour = await _settingsService.getActiveStartHour();
     final int activeEndHour = await _settingsService.getActiveEndHour();
-    final int dailySummaryHour = await _settingsService.getDailySummaryHour();
-    final int dailySummaryMinute =
-        await _settingsService.getDailySummaryMinute();
-    final int weeklySummaryWeekday =
-        await _settingsService.getWeeklySummaryWeekday();
-    final int weeklySummaryHour = await _settingsService.getWeeklySummaryHour();
-    final int weeklySummaryMinute =
-        await _settingsService.getWeeklySummaryMinute();
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _remindersEnabled = remindersEnabled;
-      _dailySummaryEnabled = dailySummaryEnabled;
-      _weeklySummaryEnabled = weeklySummaryEnabled;
       _activeStartHour = activeStartHour;
       _activeEndHour = activeEndHour;
-      _dailySummaryHour = dailySummaryHour;
-      _dailySummaryMinute = dailySummaryMinute;
-      _weeklySummaryWeekday = weeklySummaryWeekday;
-      _weeklySummaryHour = weeklySummaryHour;
-      _weeklySummaryMinute = weeklySummaryMinute;
       _isLoading = false;
     });
-  }
-
-  Future<void> _toggleReminders(bool enabled) async {
-    setState(() {
-      _remindersEnabled = enabled;
-    });
-
-    await _settingsService.setRemindersEnabled(enabled);
-
-    if (enabled) {
-      await NotificationService.syncReminders();
-    } else {
-      await NotificationService.cancelReminder();
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          enabled
-              ? 'Reminder notifications enabled'
-              : 'Reminder notifications disabled',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _toggleDailySummary(bool enabled) async {
-    setState(() {
-      _dailySummaryEnabled = enabled;
-    });
-    await _settingsService.setDailySummaryEnabled(enabled);
-    await NotificationService.syncSummaryNotifications();
-  }
-
-  Future<void> _toggleWeeklySummary(bool enabled) async {
-    setState(() {
-      _weeklySummaryEnabled = enabled;
-    });
-    await _settingsService.setWeeklySummaryEnabled(enabled);
-    await NotificationService.syncSummaryNotifications();
-  }
-
-  Future<void> _sendTestNotification() async {
-    await NotificationService.showTestNotification();
-
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Test notification sent. Check your notification tray.'),
-      ),
-    );
-  }
-
-  Future<void> _showPendingCount() async {
-    try {
-      final String status = await NotificationService.reminderDebugStatus();
-
-      if (!mounted) {
-        return;
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Reminder Status'),
-            content: SelectableText(status),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Reminder Status Failed'),
-            content: SelectableText(error.toString()),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-    }
-  }
-
-  Future<void> _scheduleTestNotification() async {
-    try {
-      await NotificationService.scheduleDebugNotification();
-      final String status = await NotificationService.reminderDebugStatus();
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Scheduled test notification for 15 seconds. $status',
-          ),
-          duration: const Duration(seconds: 6),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Scheduled Test Failed'),
-            content: SelectableText(error.toString()),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-    }
   }
 
   Future<void> _pickActiveStartHour() async {
@@ -217,19 +43,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       initialTime: TimeOfDay(hour: _activeStartHour, minute: 0),
     );
 
-    if (!mounted) {
-      return;
-    }
-
-    if (pickedTime == null) {
+    if (!mounted || pickedTime == null) {
       return;
     }
 
     if (_activeEndHour != 24 && pickedTime.hour >= _activeEndHour) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Start time must be before end time'),
-        ),
+        const SnackBar(content: Text('Start time must be before end time')),
       );
       return;
     }
@@ -292,22 +112,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: _activeEndHour == 24 ? 23 : _activeEndHour, minute: 0),
+      initialTime: TimeOfDay(
+        hour: _activeEndHour == 24 ? 23 : _activeEndHour,
+        minute: 0,
+      ),
     );
 
-    if (!mounted) {
-      return;
-    }
-
-    if (pickedTime == null) {
+    if (!mounted || pickedTime == null) {
       return;
     }
 
     if (pickedTime.hour <= _activeStartHour) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('End time must be after start time'),
-        ),
+        const SnackBar(content: Text('End time must be after start time')),
       );
       return;
     }
@@ -328,23 +145,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return '24:00';
     }
     return TimeOfDay(hour: hour % 24, minute: 0).format(context);
-  }
-
-  String _formatTimeOfDay(int hour, int minute) {
-    return TimeOfDay(hour: hour, minute: minute).format(context);
-  }
-
-  String _weekdayLabel(int weekday) {
-    const List<String> labels = <String>[
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-    return labels[(weekday - 1).clamp(0, 6)];
   }
 
   int _trackingWindowHours() {
@@ -372,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     border: Border.all(color: const Color(0xFFD5E1EE)),
                   ),
                   child: const Text(
-                    'Use this page only for reminders and active hours. Manage tasks from the Tasks tab.',
+                    'Reminders are intentionally out of scope here. Use an external app like Clock, Calendar, or Keep, then come back here only for logging and review.',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -382,13 +182,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0xFFE1E7E2)),
                   ),
-                  child: SwitchListTile(
-                    title: const Text('Reminder Notifications'),
-                    subtitle: const Text(
-                      'Primary workflow: wait for the notification, review the last interval, then choose what is next.',
+                  child: const ListTile(
+                    leading: Icon(Icons.alarm),
+                    title: Text('Reminders'),
+                    subtitle: Text(
+                      'Use an external app to get notified. Recommended cadence: every 30 minutes.',
                     ),
-                    value: _remindersEnabled,
-                    onChanged: _toggleReminders,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE1E7E2)),
+                  ),
+                  child: const Column(
+                    children: <Widget>[
+                      ListTile(
+                        leading: Icon(Icons.build_circle_outlined),
+                        title: Text('How To Set Reminders'),
+                        subtitle: Text(
+                          'Recommended apps: Google Clock, Google Calendar, Google Keep.',
+                        ),
+                      ),
+                      Divider(height: 1),
+                      ListTile(
+                        leading: Icon(Icons.looks_one_outlined),
+                        title: Text('Step 1'),
+                        subtitle: Text(
+                          'Open Clock or your preferred reminder app.',
+                        ),
+                      ),
+                      Divider(height: 1),
+                      ListTile(
+                        leading: Icon(Icons.looks_two_outlined),
+                        title: Text('Step 2'),
+                        subtitle: Text(
+                          'Create a repeating reminder every 30 minutes.',
+                        ),
+                      ),
+                      Divider(height: 1),
+                      ListTile(
+                        leading: Icon(Icons.looks_3_outlined),
+                        title: Text('Step 3'),
+                        subtitle: Text(
+                          'Label it "Log Time" so the intent is obvious.',
+                        ),
+                      ),
+                      Divider(height: 1),
+                      ListTile(
+                        leading: Icon(Icons.looks_4_outlined),
+                        title: Text('Step 4'),
+                        subtitle: Text(
+                          'When it rings, open Time Tracker and log what you just did.',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -421,184 +271,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             'Tracking window: ${_trackingWindowHours()} hours',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: const Color(0xFF56635D),
-                                ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: const Color(0xFF56635D)),
                           ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFE1E7E2)),
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      SwitchListTile(
-                        title: const Text('Enable Daily Summary'),
-                        subtitle: Text(
-                          'Daily Summary: ${_formatTimeOfDay(_dailySummaryHour, _dailySummaryMinute)}',
-                        ),
-                        value: _dailySummaryEnabled,
-                        onChanged: _toggleDailySummary,
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.today),
-                        title: const Text('Daily Summary Time'),
-                        subtitle: Text(
-                          _formatTimeOfDay(
-                            _dailySummaryHour,
-                            _dailySummaryMinute,
-                          ),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          final TimeOfDay? picked = await showTimePicker(
-                            context: context,
-                            initialTime: TimeOfDay(
-                              hour: _dailySummaryHour,
-                              minute: _dailySummaryMinute,
-                            ),
-                          );
-                          if (picked == null) {
-                            return;
-                          }
-                          await _settingsService.setDailySummaryTime(
-                            hour: picked.hour,
-                            minute: picked.minute,
-                          );
-                          await NotificationService.syncSummaryNotifications();
-                          if (!mounted) {
-                            return;
-                          }
-                          setState(() {
-                            _dailySummaryHour = picked.hour;
-                            _dailySummaryMinute = picked.minute;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFE1E7E2)),
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      SwitchListTile(
-                        title: const Text('Enable Weekly Summary'),
-                        subtitle: Text(
-                          'Weekly Summary: ${_weekdayLabel(_weeklySummaryWeekday)} ${_formatTimeOfDay(_weeklySummaryHour, _weeklySummaryMinute)}',
-                        ),
-                        value: _weeklySummaryEnabled,
-                        onChanged: _toggleWeeklySummary,
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.date_range),
-                        title: const Text('Weekly Summary Day'),
-                        subtitle: Text(_weekdayLabel(_weeklySummaryWeekday)),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          final int? selected = await showModalBottomSheet<int>(
-                            context: context,
-                            builder: (BuildContext context) {
-                              return SafeArea(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: List<Widget>.generate(7, (index) {
-                                    final int weekday = index + 1;
-                                    return ListTile(
-                                      title: Text(_weekdayLabel(weekday)),
-                                      onTap: () =>
-                                          Navigator.of(context).pop(weekday),
-                                    );
-                                  }),
-                                ),
-                              );
-                            },
-                          );
-                          if (selected == null) {
-                            return;
-                          }
-                          await _settingsService.setWeeklySummarySchedule(
-                            weekday: selected,
-                            hour: _weeklySummaryHour,
-                            minute: _weeklySummaryMinute,
-                          );
-                          await NotificationService.syncSummaryNotifications();
-                          if (!mounted) {
-                            return;
-                          }
-                          setState(() {
-                            _weeklySummaryWeekday = selected;
-                          });
-                        },
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.query_builder),
-                        title: const Text('Weekly Summary Time'),
-                        subtitle: Text(
-                          _formatTimeOfDay(
-                            _weeklySummaryHour,
-                            _weeklySummaryMinute,
-                          ),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          final TimeOfDay? picked = await showTimePicker(
-                            context: context,
-                            initialTime: TimeOfDay(
-                              hour: _weeklySummaryHour,
-                              minute: _weeklySummaryMinute,
-                            ),
-                          );
-                          if (picked == null) {
-                            return;
-                          }
-                          await _settingsService.setWeeklySummarySchedule(
-                            weekday: _weeklySummaryWeekday,
-                            hour: picked.hour,
-                            minute: picked.minute,
-                          );
-                          await NotificationService.syncSummaryNotifications();
-                          if (!mounted) {
-                            return;
-                          }
-                          setState(() {
-                            _weeklySummaryHour = picked.hour;
-                            _weeklySummaryMinute = picked.minute;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: _sendTestNotification,
-                  child: const Text('Send Test Notification'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: _scheduleTestNotification,
-                  child: const Text('Schedule Test Notification (15s)'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: _showPendingCount,
-                  child: const Text('Show Next Reminder'),
                 ),
               ],
             ),

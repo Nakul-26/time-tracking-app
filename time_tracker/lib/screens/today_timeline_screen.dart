@@ -274,7 +274,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     final ThemeData theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Today's Timeline")),
+      appBar: AppBar(title: const Text('Today View')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -284,7 +284,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'See today as a visual flow across your active hours.',
+                      'Review the shape of your day and spot gaps you still need to fill.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
@@ -362,7 +362,7 @@ class _EmptyTimelineState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Log a task for the current slot or adjust recent 30-minute slots.',
+              'Start checking in from the first tab, then review or adjust recent blocks here.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: const Color(0xFF56635D),
