@@ -215,7 +215,7 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
                     OutlinedButton.icon(
                       onPressed: _openRetroEditor,
                       icon: const Icon(Icons.history),
-                      label: const Text('Adjust Recent Slots'),
+                      label: const Text('Edit Today'),
                     ),
                     const SizedBox(height: 20),
                     if (_tasks.isNotEmpty) ...<Widget>[

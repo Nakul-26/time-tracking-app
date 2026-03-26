@@ -155,10 +155,24 @@ class LogService {
     DateTime windowStart, {
     DateTime? now,
   }) {
-    final DateTime normalizedStart = subslotStartFor(windowStart);
+    return buildAssignmentsForRange(
+      logs,
+      windowStart,
+      retroBlockCount,
+      now: now,
+    );
+  }
+
+  List<String?> buildAssignmentsForRange(
+    List<ActivityLog> logs,
+    DateTime rangeStart,
+    int blockCount, {
+    DateTime? now,
+  }) {
+    final DateTime normalizedStart = subslotStartFor(rangeStart);
     final List<String?> assignments = <String?>[];
 
-    for (int index = 0; index < retroBlockCount; index += 1) {
+    for (int index = 0; index < blockCount; index += 1) {
       final DateTime blockStart = normalizedStart.add(
         Duration(minutes: index * retroBlockSize.inMinutes),
       );

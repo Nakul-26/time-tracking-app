@@ -259,7 +259,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                       ),
                     );
                   },
-                  child: const Text('Adjust Recent Slots'),
+                  child: const Text('Edit Today'),
                 ),
               ),
             ],

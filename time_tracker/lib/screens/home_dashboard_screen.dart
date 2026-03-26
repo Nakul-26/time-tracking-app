@@ -395,6 +395,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ),
                       ],
                     ),
+                    if (_missingMinutes > 15) ...<Widget>[
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: _openRetroEditScreen,
+                          child: const Text('Log Missing Time'),
+                        ),
+                      ),
+                    ],
                     if (_currentActivity != null) ...<Widget>[
                       const SizedBox(height: 24),
                       _CurrentActivityCard(
@@ -410,7 +420,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _openRetroEditScreen,
                           icon: const Icon(Icons.history),
-                          label: const Text('Adjust Recent Slots'),
+                          label: const Text('Edit Today'),
                         ),
                       ),
                     ],
@@ -851,7 +861,7 @@ class _CheckInHeroCard extends StatelessWidget {
                   side: const BorderSide(color: Colors.white54),
                 ),
                 icon: const Icon(Icons.history),
-                label: const Text('Review Recent Blocks'),
+                label: const Text('Edit Today'),
               ),
             ],
           ),
