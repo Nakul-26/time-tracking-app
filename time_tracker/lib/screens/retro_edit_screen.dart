@@ -53,7 +53,8 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
         ? currentBlockEnd
         : configuredDayEnd;
     final int blockCount = dayEnd.isAfter(dayStart)
-        ? dayEnd.difference(dayStart).inMinutes ~/ LogService.retroBlockSize.inMinutes
+        ? dayEnd.difference(dayStart).inMinutes ~/
+              LogService.retroBlockSize.inMinutes
         : 0;
     final List<String?> assignments = blockCount == 0
         ? const <String?>[]
@@ -83,14 +84,38 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     return assignments.isEmpty ? 0 : assignments.length - 1;
   }
 
-  void _assignTask(String? taskId) {
+  Future<void> _showTaskPickerSheet(int blockIndex) async {
     if (_assignments.isEmpty) {
       return;
     }
 
     setState(() {
+      _selectedBlockIndex = blockIndex;
+    });
+
+    final String? selectedTaskId = await showModalBottomSheet<String?>(
+      context: context,
+      builder: (BuildContext context) {
+        return _TaskPickerSheet(
+          tasks: _tasks,
+          selectedTaskId: _assignments[blockIndex],
+          onSelect: (String? taskId) => Navigator.of(context).pop(taskId),
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (selectedTaskId == _assignments[blockIndex]) {
+      return;
+    }
+
+    setState(() {
+      _selectedBlockIndex = blockIndex;
       _assignments = List<String?>.from(_assignments)
-        ..[_selectedBlockIndex] = taskId;
+        ..[blockIndex] = selectedTaskId;
     });
   }
 
@@ -100,9 +125,12 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     }
 
     final int startIndex =
-        (_selectedBlockIndex ~/ LogService.retroBlockCount) * LogService.retroBlockCount;
-    final int endIndex = (startIndex + LogService.retroBlockCount)
-        .clamp(0, _assignments.length);
+        (_selectedBlockIndex ~/ LogService.retroBlockCount) *
+        LogService.retroBlockCount;
+    final int endIndex = (startIndex + LogService.retroBlockCount).clamp(
+      0,
+      _assignments.length,
+    );
     final List<String?> nextAssignments = List<String?>.from(_assignments);
 
     for (int index = startIndex; index < endIndex; index += 1) {
@@ -126,9 +154,9 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Updated today\'s timeline')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Updated today\'s timeline')));
     Navigator.of(context).pop();
   }
 
@@ -177,9 +205,15 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
       for (final Task task in _tasks) task.id: task,
     };
     final bool hasBlocks = _assignments.isNotEmpty;
-    final String? selectedTaskId = hasBlocks ? _assignments[_selectedBlockIndex] : null;
-    final DateTime? selectedBlockStart = hasBlocks ? _blockStartAt(_selectedBlockIndex) : null;
-    final DateTime? selectedBlockEnd = hasBlocks ? _blockEndAt(_selectedBlockIndex) : null;
+    final String? selectedTaskId = hasBlocks
+        ? _assignments[_selectedBlockIndex]
+        : null;
+    final DateTime? selectedBlockStart = hasBlocks
+        ? _blockStartAt(_selectedBlockIndex)
+        : null;
+    final DateTime? selectedBlockEnd = hasBlocks
+        ? _blockEndAt(_selectedBlockIndex)
+        : null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Edit Today')),
@@ -216,36 +250,11 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                                   '${_formatTime(selectedBlockStart!)} - ${_formatTime(selectedBlockEnd!)}',
                               taskName: selectedTaskId == null
                                   ? 'Unassigned'
-                                  : tasksById[selectedTaskId]?.name ?? 'Unknown',
+                                  : tasksById[selectedTaskId]?.name ??
+                                        'Unknown',
                               windowRange: _selectedWindowRangeLabel(),
                             ),
                             const SizedBox(height: 16),
-                            Text(
-                              'Assign Selected 5-Minute Block',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: <Widget>[
-                                ChoiceChip(
-                                  label: const Text('Clear'),
-                                  selected: selectedTaskId == null,
-                                  onSelected: (_) => _assignTask(null),
-                                ),
-                                ..._tasks.map(
-                                  (Task task) => ChoiceChip(
-                                    label: Text(task.name),
-                                    selected: selectedTaskId == task.id,
-                                    onSelected: (_) => _assignTask(task.id),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
                             Wrap(
                               spacing: 12,
                               runSpacing: 12,
@@ -253,11 +262,14 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                                 OutlinedButton(
                                   onPressed: selectedTaskId == null
                                       ? null
-                                      : () => _assignTaskToSelectedWindow(selectedTaskId),
+                                      : () => _assignTaskToSelectedWindow(
+                                          selectedTaskId,
+                                        ),
                                   child: const Text('Fill 30-Min Window'),
                                 ),
                                 TextButton(
-                                  onPressed: () => _assignTaskToSelectedWindow(null),
+                                  onPressed: () =>
+                                      _assignTaskToSelectedWindow(null),
                                   child: const Text('Clear 30-Min Window'),
                                 ),
                               ],
@@ -271,7 +283,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Tap any 5-minute block below, then assign a task above.',
+                              'Tap any 5-minute block below to assign a task instantly.',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: const Color(0xFF56635D),
                               ),
@@ -302,11 +314,15 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
   List<Widget> _buildWindowCards(ThemeData theme, Map<String, Task> tasksById) {
     final List<Widget> cards = <Widget>[];
 
-    for (int startIndex = 0;
-        startIndex < _assignments.length;
-        startIndex += LogService.retroBlockCount) {
-      final int endIndex = (startIndex + LogService.retroBlockCount)
-          .clamp(0, _assignments.length);
+    for (
+      int startIndex = 0;
+      startIndex < _assignments.length;
+      startIndex += LogService.retroBlockCount
+    ) {
+      final int endIndex = (startIndex + LogService.retroBlockCount).clamp(
+        0,
+        _assignments.length,
+      );
       final DateTime windowStart = _blockStartAt(startIndex);
       final DateTime windowEnd = _blockEndAt(endIndex - 1);
 
@@ -340,62 +356,57 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: List<Widget>.generate(
-                    endIndex - startIndex,
-                    (int offset) {
-                      final int blockIndex = startIndex + offset;
-                      final DateTime blockStart = _blockStartAt(blockIndex);
-                      final DateTime blockEnd = _blockEndAt(blockIndex);
-                      final String? taskId = _assignments[blockIndex];
-                      final bool isSelected = blockIndex == _selectedBlockIndex;
+                  children: List<Widget>.generate(endIndex - startIndex, (
+                    int offset,
+                  ) {
+                    final int blockIndex = startIndex + offset;
+                    final DateTime blockStart = _blockStartAt(blockIndex);
+                    final DateTime blockEnd = _blockEndAt(blockIndex);
+                    final String? taskId = _assignments[blockIndex];
+                    final bool isSelected = blockIndex == _selectedBlockIndex;
 
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedBlockIndex = blockIndex;
-                          });
-                        },
-                        child: Container(
-                          width: 112,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
+                    return GestureDetector(
+                      onTap: () => _showTaskPickerSheet(blockIndex),
+                      child: Container(
+                        width: 112,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFFD8F1E6)
+                              : const Color(0xFFF8FAF8),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
                             color: isSelected
-                                ? const Color(0xFFD8F1E6)
-                                : const Color(0xFFF8FAF8),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSelected
-                                  ? const Color(0xFF1E847F)
-                                  : const Color(0xFFE1E7E2),
-                              width: isSelected ? 2 : 1,
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                '${_formatTime(blockStart)} - ${_formatTime(blockEnd)}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                taskId == null
-                                    ? 'Unassigned'
-                                    : tasksById[taskId]?.name ?? 'Unknown',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
+                                ? const Color(0xFF1E847F)
+                                : const Color(0xFFE1E7E2),
+                            width: isSelected ? 2 : 1,
                           ),
                         ),
-                      );
-                    },
-                  ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              '${_formatTime(blockStart)} - ${_formatTime(blockEnd)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              taskId == null
+                                  ? 'Unassigned'
+                                  : tasksById[taskId]?.name ?? 'Unknown',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ],
             ),
@@ -413,14 +424,21 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     }
 
     final int startIndex =
-        (_selectedBlockIndex ~/ LogService.retroBlockCount) * LogService.retroBlockCount;
-    final int endIndex = (startIndex + LogService.retroBlockCount)
-        .clamp(0, _assignments.length);
+        (_selectedBlockIndex ~/ LogService.retroBlockCount) *
+        LogService.retroBlockCount;
+    final int endIndex = (startIndex + LogService.retroBlockCount).clamp(
+      0,
+      _assignments.length,
+    );
 
     return '${_formatTime(_blockStartAt(startIndex))} - ${_formatTime(_blockEndAt(endIndex - 1))}';
   }
 
-  String _windowSummary(int startIndex, int endIndex, Map<String, Task> tasksById) {
+  String _windowSummary(
+    int startIndex,
+    int endIndex,
+    Map<String, Task> tasksById,
+  ) {
     final Map<String, int> minutesByTask = <String, int>{};
     int unassignedMinutes = 0;
 
@@ -447,6 +465,67 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
     }
 
     return parts.isEmpty ? 'No time assigned yet' : parts.join('  •  ');
+  }
+}
+
+class _TaskPickerSheet extends StatelessWidget {
+  const _TaskPickerSheet({
+    required this.tasks,
+    required this.selectedTaskId,
+    required this.onSelect,
+  });
+
+  final List<Task> tasks;
+  final String? selectedTaskId;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Assign Task',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: <Widget>[
+                  ...tasks.map(
+                    (Task task) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(task.name),
+                      trailing: selectedTaskId == task.id
+                          ? const Icon(Icons.check, color: Color(0xFF1E847F))
+                          : null,
+                      onTap: () => onSelect(task.id),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Clear'),
+                    trailing: selectedTaskId == null
+                        ? const Icon(Icons.check, color: Color(0xFF1E847F))
+                        : null,
+                    onTap: () => onSelect(null),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
