@@ -7,7 +7,6 @@ import '../models/task.dart';
 import '../services/log_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_service.dart';
-import 'log_activity_screen.dart';
 import 'retro_edit_screen.dart';
 import 'task_list_screen.dart';
 
@@ -52,10 +51,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       for (final Task task in tasks) task.id: task.name,
     };
     final Map<String, int> taskMinutes = <String, int>{};
-    final ActivityLog? currentActivity = await _logService.getCurrentActivity(now);
+    final ActivityLog? currentActivity = await _logService.getCurrentActivity(
+      now,
+    );
 
     for (final ActivityLog log in logs) {
-      final int durationMinutes = _logService.overlapMinutesForDay(log, now, now: now);
+      final int durationMinutes = _logService.overlapMinutesForDay(
+        log,
+        now,
+        now: now,
+      );
       if (durationMinutes <= 0) {
         continue;
       }
@@ -77,15 +82,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     if (missingMinutes > 0) {
       taskMinutes['Unknown'] = missingMinutes;
     }
-    final List<_ActivitySummary> topActivities = taskMinutes.entries
-        .map(
-          (MapEntry<String, int> entry) => _ActivitySummary(
-            taskName: entry.key,
-            minutes: entry.value,
-          ),
-        )
-        .toList()
-      ..sort((a, b) => b.minutes.compareTo(a.minutes));
+    final List<_ActivitySummary> topActivities =
+        taskMinutes.entries
+            .map(
+              (MapEntry<String, int> entry) =>
+                  _ActivitySummary(taskName: entry.key, minutes: entry.value),
+            )
+            .toList()
+          ..sort((a, b) => b.minutes.compareTo(a.minutes));
 
     if (!mounted) {
       return;
@@ -105,14 +109,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           : _CurrentActivitySummary(
               taskName: taskNamesById[currentActivity.taskId] ?? 'Unknown',
               startedAt: currentActivity.startTime,
-              durationMinutes:
-                  _logService.durationMinutesForLog(currentActivity, now: now),
+              durationMinutes: _logService.durationMinutesForLog(
+                currentActivity,
+                now: now,
+              ),
             );
       _isLoading = false;
     });
   }
 
-  Future<void> _startActivity(Task task) async {
+  Future<void> _logNow(Task task) async {
     await _logService.startActivity(task.id);
     await _taskService.setSelectedTaskId(task.id);
 
@@ -121,47 +127,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     await _loadDashboard();
-
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Logged ${task.name} for this check-in block.'),
-      ),
-    );
-  }
-
-  int _calculateMissingMinutes(
-    DateTime now,
-    int loggedMinutes,
-    int startHour,
-    int endHour,
-  ) {
-    final DateTime start = DateTime(now.year, now.month, now.day, startHour);
-    final DateTime end = endHour == 24
-        ? DateTime(now.year, now.month, now.day).add(const Duration(days: 1))
-        : DateTime(now.year, now.month, now.day, endHour);
-
-    if (!end.isAfter(start)) {
-      return 0;
-    }
-
-    final int expectedMinutes;
-    if (now.isBefore(start)) {
-      expectedMinutes = 0;
-    } else if (now.isAfter(end)) {
-      expectedMinutes = end.difference(start).inMinutes;
-    } else {
-      expectedMinutes = now.difference(start).inMinutes;
-    }
-
-    return (expectedMinutes - loggedMinutes).clamp(0, expectedMinutes);
-  }
-
-  Future<void> _openLogActivityScreen() async {
-    await _openScreen(const LogActivityScreen());
   }
 
   Future<void> _openRetroEditScreen() async {
@@ -179,17 +144,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     final List<Task> prioritizedTasks = <Task>[];
     final Set<String> addedIds = <String>{};
-
-    if (_currentActivity != null) {
-      final Task? currentTask = _tasks.cast<Task?>().firstWhere(
-        (Task? task) => task?.name == _currentActivity!.taskName,
-        orElse: () => null,
-      );
-      if (currentTask != null) {
-        prioritizedTasks.add(currentTask);
-        addedIds.add(currentTask.id);
-      }
-    }
 
     if (_selectedTaskId != null) {
       final Task? selectedTask = _tasks.cast<Task?>().firstWhere(
@@ -226,6 +180,33 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     }
 
     return prioritizedTasks;
+  }
+
+  int _calculateMissingMinutes(
+    DateTime now,
+    int loggedMinutes,
+    int startHour,
+    int endHour,
+  ) {
+    final DateTime start = DateTime(now.year, now.month, now.day, startHour);
+    final DateTime end = endHour == 24
+        ? DateTime(now.year, now.month, now.day).add(const Duration(days: 1))
+        : DateTime(now.year, now.month, now.day, endHour);
+
+    if (!end.isAfter(start)) {
+      return 0;
+    }
+
+    final int expectedMinutes;
+    if (now.isBefore(start)) {
+      expectedMinutes = 0;
+    } else if (now.isAfter(end)) {
+      expectedMinutes = end.difference(start).inMinutes;
+    } else {
+      expectedMinutes = now.difference(start).inMinutes;
+    }
+
+    return (expectedMinutes - loggedMinutes).clamp(0, expectedMinutes);
   }
 
   List<String> _buildRecentTaskIds(List<ActivityLog> logs) {
@@ -306,12 +287,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     );
     final DateTime end = _activeEndHour == 24
         ? DateTime(now.year, now.month, now.day).add(const Duration(days: 1))
-        : DateTime(
-            now.year,
-            now.month,
-            now.day,
-            _activeEndHour,
-          );
+        : DateTime(now.year, now.month, now.day, _activeEndHour);
 
     if (!end.isAfter(start)) {
       return true;
@@ -341,9 +317,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     final bool insideActiveWindow = _isWithinActiveWindow(now);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Check-In'),
-      ),
+      appBar: AppBar(title: const Text('Check-In')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -352,6 +326,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 child: ListView(
                   padding: const EdgeInsets.all(20),
                   children: <Widget>[
+                    _LogNowSection(
+                      timeRange:
+                          '${_formatClock(currentWindowStart)} - ${_formatClock(currentWindowEnd)}',
+                      tasks: _quickLogTasks(),
+                      selectedTaskId: _selectedTaskId,
+                      insideActiveWindow: insideActiveWindow,
+                      onTaskTap: _logNow,
+                      onManageTasks: _openTaskListScreen,
+                    ),
+                    const SizedBox(height: 20),
                     Text(
                       'Open the app when your external alarm rings and log the last stretch quickly.',
                       style: theme.textTheme.bodyLarge?.copyWith(
@@ -364,16 +348,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF7A867F),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _CheckInHeroCard(
-                      timeRange:
-                          '${_formatClock(currentWindowStart)} - ${_formatClock(currentWindowEnd)}',
-                      hasTasks: _tasks.isNotEmpty,
-                      insideActiveWindow: insideActiveWindow,
-                      onPrimaryTap:
-                          _tasks.isEmpty ? _openTaskListScreen : _openLogActivityScreen,
-                      onSecondaryTap: _openRetroEditScreen,
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -411,8 +385,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         title: 'Latest Check-In',
                         taskName: _currentActivity!.taskName,
                         startedAt: _formatClock(_currentActivity!.startedAt),
-                        durationLabel:
-                            _formatDuration(_currentActivity!.durationMinutes),
+                        durationLabel: _formatDuration(
+                          _currentActivity!.durationMinutes,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Align(
@@ -424,14 +399,18 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ),
                       ),
                     ],
-                    if (_currentActivity == null && insideActiveWindow) ...<Widget>[
+                    if (_currentActivity == null &&
+                        insideActiveWindow) ...<Widget>[
                       const SizedBox(height: 24),
                       _CurrentActivityCard(
                         title: 'Ready To Log',
                         taskName: 'Unknown',
-                        startedAt: _formatClock(_logService.subslotStartFor(now)),
-                        durationLabel:
-                            _formatDuration(LogService.retroBlockSize.inMinutes),
+                        startedAt: _formatClock(
+                          _logService.subslotStartFor(now),
+                        ),
+                        durationLabel: _formatDuration(
+                          LogService.retroBlockSize.inMinutes,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -443,78 +422,18 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     ],
                     const SizedBox(height: 24),
                     Text(
-                      'Quick Picks',
+                      'Recent Overview',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 12),
-                    if (_tasks.isEmpty)
-                      const _EmptyQuickLogState()
-                    else ...<Widget>[
-                      Text(
-                        'Your most likely answers are surfaced first so check-in stays nearly one tap.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF56635D),
-                        ),
+                    Text(
+                      'Your top tasks stay pinned above so logging the current block is one tap.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF56635D),
                       ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: _quickLogTasks()
-                            .map(
-                              (Task task) => SizedBox(
-                                width: 172,
-                                child: FilledButton.icon(
-                                  onPressed: () => _startActivity(task),
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 18,
-                                    ),
-                                    backgroundColor: task.id == _selectedTaskId
-                                        ? const Color(0xFF1E847F)
-                                        : Colors.white,
-                                    foregroundColor: task.id == _selectedTaskId
-                                        ? Colors.white
-                                        : const Color(0xFF15201B),
-                                    side: BorderSide(
-                                      color: task.id == _selectedTaskId
-                                          ? const Color(0xFF1E847F)
-                                          : const Color(0xFFE1E7E2),
-                                    ),
-                                    alignment: Alignment.centerLeft,
-                                  ),
-                                  icon: Icon(
-                                    task.id == _selectedTaskId
-                                        ? Icons.check_circle
-                                        : Icons.bolt,
-                                  ),
-                                  label: Text(
-                                    task.name,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: <Widget>[
-                          OutlinedButton(
-                            onPressed: _openLogActivityScreen,
-                            child: const Text('Open Full Check-In'),
-                          ),
-                          const SizedBox(width: 12),
-                          TextButton(
-                            onPressed: _openTaskListScreen,
-                            child: const Text('Manage Tasks'),
-                          ),
-                        ],
-                      ),
-                    ],
+                    ),
                     const SizedBox(height: 24),
                     Text(
                       'Today So Far',
@@ -768,53 +687,46 @@ class _EmptyQuickLogState extends StatelessWidget {
   }
 }
 
-class _CheckInHeroCard extends StatelessWidget {
-  const _CheckInHeroCard({
+class _LogNowSection extends StatelessWidget {
+  const _LogNowSection({
     required this.timeRange,
-    required this.hasTasks,
+    required this.tasks,
+    required this.selectedTaskId,
     required this.insideActiveWindow,
-    required this.onPrimaryTap,
-    required this.onSecondaryTap,
+    required this.onTaskTap,
+    required this.onManageTasks,
   });
 
   final String timeRange;
-  final bool hasTasks;
+  final List<Task> tasks;
+  final String? selectedTaskId;
   final bool insideActiveWindow;
-  final VoidCallback onPrimaryTap;
-  final VoidCallback onSecondaryTap;
+  final ValueChanged<Task> onTaskTap;
+  final VoidCallback onManageTasks;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String headline = !insideActiveWindow
-        ? 'Outside your tracking window'
-        : hasTasks
-            ? 'What did you just do?'
-            : 'Create tasks before your first check-in';
-    final String body = !insideActiveWindow
-        ? 'You can still log manually, but the dashboard is currently outside your normal active hours.'
-        : hasTasks
-            ? 'Review $timeRange, tap the best match, and keep moving.'
-            : 'Add a short task list like Coding, Study, Break, and Meetings so logging stays fast.';
+    final Task? primaryTask = tasks.isEmpty ? null : tasks.first;
+    final List<Task> secondaryTasks = tasks.length <= 1
+        ? const <Task>[]
+        : tasks.sublist(1);
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: <Color>[Color(0xFF1E847F), Color(0xFF2F6DA3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE1E7E2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Current window',
+            'What are you doing right now?',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white70,
+              color: const Color(0xFF56635D),
             ),
           ),
           const SizedBox(height: 6),
@@ -822,48 +734,89 @@ class _CheckInHeroCard extends StatelessWidget {
             timeRange,
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            headline,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            body,
+            insideActiveWindow
+                ? 'Tap once to fill the current 5-minute block.'
+                : 'You are outside your active window, but you can still log the current 5-minute block instantly.',
             style: theme.textTheme.bodyLarge?.copyWith(
-              color: Colors.white.withValues(alpha: 0.9),
+              color: const Color(0xFF56635D),
             ),
           ),
           const SizedBox(height: 18),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: <Widget>[
-              FilledButton.icon(
-                onPressed: onPrimaryTap,
+          if (primaryTask == null)
+            const _EmptyQuickLogState()
+          else ...<Widget>[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => onTaskTap(primaryTask),
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF0E3B39),
-                ),
-                icon: Icon(hasTasks ? Icons.edit_calendar : Icons.add_task),
-                label: Text(hasTasks ? 'Start Check-In' : 'Create Tasks'),
-              ),
-              OutlinedButton.icon(
-                onPressed: onSecondaryTap,
-                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 20,
+                  ),
+                  backgroundColor: const Color(0xFF1E847F),
                   foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white54),
+                  alignment: Alignment.centerLeft,
                 ),
-                icon: const Icon(Icons.history),
-                label: const Text('Edit Today'),
+                icon: const Icon(Icons.bolt),
+                label: Text(
+                  primaryTask.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            if (secondaryTasks.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: secondaryTasks
+                    .map(
+                      (Task task) => OutlinedButton.icon(
+                        onPressed: () => onTaskTap(task),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          foregroundColor: task.id == selectedTaskId
+                              ? const Color(0xFF1E847F)
+                              : const Color(0xFF15201B),
+                          side: BorderSide(
+                            color: task.id == selectedTaskId
+                                ? const Color(0xFF1E847F)
+                                : const Color(0xFFE1E7E2),
+                          ),
+                        ),
+                        icon: Icon(
+                          task.id == selectedTaskId
+                              ? Icons.check_circle
+                              : Icons.bolt,
+                        ),
+                        label: Text(task.name),
+                      ),
+                    )
+                    .toList(),
               ),
             ],
+          ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: onManageTasks,
+              child: Text(
+                primaryTask == null ? 'Create Tasks' : 'Manage Tasks',
+              ),
+            ),
           ),
         ],
       ),
