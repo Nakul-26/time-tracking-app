@@ -20,7 +20,10 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
+          flutter-version: '3.41.6'
+
+      - name: Disable Flutter analytics
+        run: flutter config --no-analytics --no-cli-animations
 
       - name: Install dependencies
         run: flutter pub get
