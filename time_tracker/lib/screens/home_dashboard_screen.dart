@@ -32,6 +32,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   int _activeStartHour = 7;
   int _activeEndHour = 24;
   bool _isLoading = true;
+  bool _showTaskChoices = false;
 
   @override
   void initState() {
@@ -40,20 +41,32 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   Future<void> _loadDashboard() async {
-    final List<ActivityLog> logs = await _logService.getLogs();
     final List<Task> tasks = await _taskService.getTasks();
-    final List<String> recentTaskIds = _buildRecentTaskIds(logs);
     final String? selectedTaskId = await _taskService.getSelectedTaskId();
     final int activeStartHour = await _settingsService.getActiveStartHour();
     final int activeEndHour = await _settingsService.getActiveEndHour();
     final DateTime now = DateTime.now();
+    List<ActivityLog> logs = await _logService.getLogs();
+    List<String> recentTaskIds = _buildRecentTaskIds(logs);
+    ActivityLog? currentActivity = await _logService.getCurrentActivity(now);
+    final List<Task> quickLogTasks = _prioritizeTasks(
+      tasks: tasks,
+      recentTaskIds: recentTaskIds,
+      selectedTaskId: selectedTaskId,
+    );
+
+    if (currentActivity == null && quickLogTasks.isNotEmpty) {
+      await _logService.startActivity(quickLogTasks.first.id, now);
+      await _taskService.setSelectedTaskId(quickLogTasks.first.id);
+      logs = await _logService.getLogs();
+      recentTaskIds = _buildRecentTaskIds(logs);
+      currentActivity = await _logService.getCurrentActivity(now);
+    }
+
     final Map<String, String> taskNamesById = <String, String>{
       for (final Task task in tasks) task.id: task.name,
     };
     final Map<String, int> taskMinutes = <String, int>{};
-    final ActivityLog? currentActivity = await _logService.getCurrentActivity(
-      now,
-    );
 
     for (final ActivityLog log in logs) {
       final int durationMinutes = _logService.overlapMinutesForDay(
@@ -126,6 +139,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       return;
     }
 
+    setState(() {
+      _showTaskChoices = false;
+    });
     await _loadDashboard();
   }
 
@@ -138,16 +154,28 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   }
 
   List<Task> _quickLogTasks() {
-    if (_tasks.isEmpty) {
+    return _prioritizeTasks(
+      tasks: _tasks,
+      recentTaskIds: _recentTaskIds,
+      selectedTaskId: _selectedTaskId,
+    );
+  }
+
+  List<Task> _prioritizeTasks({
+    required List<Task> tasks,
+    required List<String> recentTaskIds,
+    required String? selectedTaskId,
+  }) {
+    if (tasks.isEmpty) {
       return const <Task>[];
     }
 
     final List<Task> prioritizedTasks = <Task>[];
     final Set<String> addedIds = <String>{};
 
-    if (_selectedTaskId != null) {
-      final Task? selectedTask = _tasks.cast<Task?>().firstWhere(
-        (Task? task) => task?.id == _selectedTaskId,
+    if (selectedTaskId != null) {
+      final Task? selectedTask = tasks.cast<Task?>().firstWhere(
+        (Task? task) => task?.id == selectedTaskId,
         orElse: () => null,
       );
       if (selectedTask != null && addedIds.add(selectedTask.id)) {
@@ -155,8 +183,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
 
-    for (final String recentTaskId in _recentTaskIds) {
-      final Task? recentTask = _tasks.cast<Task?>().firstWhere(
+    for (final String recentTaskId in recentTaskIds) {
+      final Task? recentTask = tasks.cast<Task?>().firstWhere(
         (Task? task) => task?.id == recentTaskId,
         orElse: () => null,
       );
@@ -169,7 +197,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     }
 
-    for (final Task task in _tasks) {
+    for (final Task task in tasks) {
       if (addedIds.add(task.id)) {
         prioritizedTasks.add(task);
       }
@@ -331,8 +359,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                           '${_formatClock(currentWindowStart)} - ${_formatClock(currentWindowEnd)}',
                       tasks: _quickLogTasks(),
                       selectedTaskId: _selectedTaskId,
-                      insideActiveWindow: insideActiveWindow,
+                      currentTaskName: _currentActivity?.taskName,
+                      showTaskChoices: _showTaskChoices,
                       onTaskTap: _logNow,
+                      onChangeTap: () {
+                        setState(() {
+                          _showTaskChoices = true;
+                        });
+                      },
                       onManageTasks: _openTaskListScreen,
                     ),
                     const SizedBox(height: 20),
@@ -692,16 +726,20 @@ class _LogNowSection extends StatelessWidget {
     required this.timeRange,
     required this.tasks,
     required this.selectedTaskId,
-    required this.insideActiveWindow,
+    required this.currentTaskName,
+    required this.showTaskChoices,
     required this.onTaskTap,
+    required this.onChangeTap,
     required this.onManageTasks,
   });
 
   final String timeRange;
   final List<Task> tasks;
   final String? selectedTaskId;
-  final bool insideActiveWindow;
+  final String? currentTaskName;
+  final bool showTaskChoices;
   final ValueChanged<Task> onTaskTap;
+  final VoidCallback onChangeTap;
   final VoidCallback onManageTasks;
 
   @override
@@ -724,31 +762,34 @@ class _LogNowSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'What are you doing right now?',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF56635D),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
             timeRange,
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            insideActiveWindow
-                ? 'Tap once to fill the current 5-minute block.'
-                : 'You are outside your active window, but you can still log the current 5-minute block instantly.',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: const Color(0xFF56635D),
-            ),
-          ),
           const SizedBox(height: 18),
           if (primaryTask == null)
             const _EmptyQuickLogState()
-          else ...<Widget>[
+          else if (!showTaskChoices) ...<Widget>[
+            Text(
+              'Logged: ${currentTaskName ?? primaryTask.name}',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF1E847F),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: onChangeTap,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
+              ),
+              child: const Text('Change'),
+            ),
+          ] else ...<Widget>[
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(

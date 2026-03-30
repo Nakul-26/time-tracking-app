@@ -64,7 +64,7 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Logged ${task.name} for this check-in block.',
+          'Logged ${task.name} for this 30-minute block.',
         ),
       ),
     );
@@ -352,7 +352,7 @@ class _TaskChoiceCard extends StatelessWidget {
                       ],
                       const SizedBox(height: 6),
                       Text(
-                        'Tap to assign this check-in block',
+                        'Tap to assign this 30-minute block',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF56635D),
                         ),

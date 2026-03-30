@@ -70,16 +70,23 @@ class LogService {
 
   Future<ActivityLog> startActivity(String taskId, [DateTime? now]) async {
     final DateTime effectiveNow = now ?? DateTime.now();
+    final DateTime windowStart = slotStartFor(effectiveNow);
     final DateTime slotStart = subslotStartFor(effectiveNow);
-    final ActivityLog? currentActivity = await getCurrentActivity(effectiveNow);
+    final List<ActivityLog> logs = await getLogs();
+    final List<String?> existingAssignments = buildRetroBlockAssignments(
+      logs,
+      windowStart,
+    );
 
-    if (currentActivity != null &&
-        currentActivity.taskId == taskId &&
-        currentActivity.startTime.isAtSameMomentAs(slotStart)) {
-      return currentActivity;
+    final bool alreadyFilled = existingAssignments.length == retroBlockCount &&
+        existingAssignments.every((String? existingTaskId) => existingTaskId == taskId);
+    if (!alreadyFilled) {
+      await assignSlots(
+        windowStart,
+        List<String?>.filled(retroBlockCount, taskId),
+      );
     }
 
-    await assignSlots(slotStart, <String?>[taskId]);
     return ActivityLog(
       id: slotStart.toIso8601String(),
       taskId: taskId,
