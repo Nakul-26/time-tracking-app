@@ -4,6 +4,7 @@ import '../models/activity_log.dart';
 
 class LogService {
   static const String _logsBoxName = 'logs';
+  static const String unknownTaskId = '__unknown__';
   static const Duration slotDuration = Duration(minutes: 30);
   static const Duration retroBlockSize = Duration(minutes: 5);
   static const int retroBlockCount = 6;
@@ -64,27 +65,32 @@ class LogService {
     return null;
   }
 
+  Future<String?> getCurrentTaskId([DateTime? now]) async {
+    final ActivityLog? currentActivity = await getCurrentActivity(now);
+    final String? taskId = currentActivity?.taskId;
+
+    if (_isUnknownTaskId(taskId)) {
+      return null;
+    }
+
+    return taskId;
+  }
+
+  Future<bool> isCurrentBlockEmpty([DateTime? now]) async {
+    return (await getCurrentTaskId(now)) == null;
+  }
+
   Future<ActivityLog?> getLatestOpenActivity([DateTime? now]) {
     return getCurrentActivity(now);
   }
 
   Future<ActivityLog> startActivity(String taskId, [DateTime? now]) async {
     final DateTime effectiveNow = now ?? DateTime.now();
-    final DateTime windowStart = slotStartFor(effectiveNow);
     final DateTime slotStart = subslotStartFor(effectiveNow);
-    final List<ActivityLog> logs = await getLogs();
-    final List<String?> existingAssignments = buildRetroBlockAssignments(
-      logs,
-      windowStart,
-    );
+    final ActivityLog? currentActivity = await getCurrentActivity(effectiveNow);
 
-    final bool alreadyFilled = existingAssignments.length == retroBlockCount &&
-        existingAssignments.every((String? existingTaskId) => existingTaskId == taskId);
-    if (!alreadyFilled) {
-      await assignSlots(
-        windowStart,
-        List<String?>.filled(retroBlockCount, taskId),
-      );
+    if (currentActivity?.taskId != taskId) {
+      await assignSlots(slotStart, <String?>[taskId]);
     }
 
     return ActivityLog(
@@ -277,5 +283,16 @@ class LogService {
 
   bool _isLogLongEnough(ActivityLog log) {
     return effectiveEndTime(log).difference(log.startTime) >= minimumLogDuration;
+  }
+
+  bool _isUnknownTaskId(String? taskId) {
+    if (taskId == null) {
+      return true;
+    }
+
+    final String normalizedTaskId = taskId.trim().toLowerCase();
+    return normalizedTaskId.isEmpty ||
+        normalizedTaskId == unknownTaskId ||
+        normalizedTaskId == 'unknown';
   }
 }

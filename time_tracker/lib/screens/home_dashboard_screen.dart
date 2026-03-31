@@ -33,6 +33,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   int _activeEndHour = 24;
   bool _isLoading = true;
   bool _showTaskChoices = false;
+  _CurrentBlockStatus _currentBlockStatus = _CurrentBlockStatus.empty;
 
   @override
   void initState() {
@@ -48,6 +49,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     final DateTime now = DateTime.now();
     List<ActivityLog> logs = await _logService.getLogs();
     List<String> recentTaskIds = _buildRecentTaskIds(logs);
+    bool didLogCurrentBlockInSession = false;
+    final bool isCurrentBlockEmpty = await _logService.isCurrentBlockEmpty(now);
     ActivityLog? currentActivity = await _logService.getCurrentActivity(now);
     final List<Task> quickLogTasks = _prioritizeTasks(
       tasks: tasks,
@@ -55,12 +58,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       selectedTaskId: selectedTaskId,
     );
 
-    if (currentActivity == null && quickLogTasks.isNotEmpty) {
+    if (isCurrentBlockEmpty && quickLogTasks.isNotEmpty) {
       await _logService.startActivity(quickLogTasks.first.id, now);
       await _taskService.setSelectedTaskId(quickLogTasks.first.id);
       logs = await _logService.getLogs();
       recentTaskIds = _buildRecentTaskIds(logs);
       currentActivity = await _logService.getCurrentActivity(now);
+      didLogCurrentBlockInSession = true;
     }
 
     final Map<String, String> taskNamesById = <String, String>{
@@ -127,6 +131,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 now: now,
               ),
             );
+      _currentBlockStatus = currentActivity == null
+          ? _CurrentBlockStatus.empty
+          : didLogCurrentBlockInSession
+          ? _CurrentBlockStatus.logged
+          : _CurrentBlockStatus.alreadyLogged;
       _isLoading = false;
     });
   }
@@ -141,6 +150,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
     setState(() {
       _showTaskChoices = false;
+      _currentBlockStatus = _CurrentBlockStatus.logged;
     });
     await _loadDashboard();
   }
@@ -360,6 +370,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       tasks: _quickLogTasks(),
                       selectedTaskId: _selectedTaskId,
                       currentTaskName: _currentActivity?.taskName,
+                      currentBlockStatus: _currentBlockStatus,
                       showTaskChoices: _showTaskChoices,
                       onTaskTap: _logNow,
                       onChangeTap: () {
@@ -515,6 +526,8 @@ class _CurrentActivitySummary {
   final DateTime startedAt;
   final int durationMinutes;
 }
+
+enum _CurrentBlockStatus { empty, logged, alreadyLogged }
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
@@ -727,6 +740,7 @@ class _LogNowSection extends StatelessWidget {
     required this.tasks,
     required this.selectedTaskId,
     required this.currentTaskName,
+    required this.currentBlockStatus,
     required this.showTaskChoices,
     required this.onTaskTap,
     required this.onChangeTap,
@@ -737,6 +751,7 @@ class _LogNowSection extends StatelessWidget {
   final List<Task> tasks;
   final String? selectedTaskId;
   final String? currentTaskName;
+  final _CurrentBlockStatus currentBlockStatus;
   final bool showTaskChoices;
   final ValueChanged<Task> onTaskTap;
   final VoidCallback onChangeTap;
@@ -772,7 +787,7 @@ class _LogNowSection extends StatelessWidget {
             const _EmptyQuickLogState()
           else if (!showTaskChoices) ...<Widget>[
             Text(
-              'Logged: ${currentTaskName ?? primaryTask.name}',
+              '${currentBlockStatus == _CurrentBlockStatus.alreadyLogged ? 'Already logged' : 'Logged'}: ${currentTaskName ?? primaryTask.name}',
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: const Color(0xFF1E847F),
