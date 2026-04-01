@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/activity_log.dart';
@@ -33,7 +35,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   int _activeEndHour = 24;
   bool _isLoading = true;
   bool _showTaskChoices = false;
+  bool _justLogged = false;
   _CurrentBlockStatus _currentBlockStatus = _CurrentBlockStatus.empty;
+  Timer? _justLoggedTimer;
 
   @override
   void initState() {
@@ -133,7 +137,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             );
       _currentBlockStatus = currentActivity == null
           ? _CurrentBlockStatus.empty
-          : didLogCurrentBlockInSession
+          : (_justLogged || didLogCurrentBlockInSession)
           ? _CurrentBlockStatus.logged
           : _CurrentBlockStatus.alreadyLogged;
       _isLoading = false;
@@ -143,6 +147,16 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Future<void> _logNow(Task task) async {
     await _logService.startActivity(task.id);
     await _taskService.setSelectedTaskId(task.id);
+    _justLoggedTimer?.cancel();
+    _justLogged = true;
+    _justLoggedTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _justLogged = false;
+      });
+    });
 
     if (!mounted) {
       return;
@@ -153,6 +167,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       _currentBlockStatus = _CurrentBlockStatus.logged;
     });
     await _loadDashboard();
+  }
+
+  @override
+  void dispose() {
+    _justLoggedTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _openRetroEditScreen() async {

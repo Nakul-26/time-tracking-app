@@ -154,6 +154,49 @@ Future<void> main() async {
     expect((rawLog as Map<dynamic, dynamic>)['taskId'], 'task-3');
   });
 
+  testWidgets('manual change keeps showing logged briefly before reverting', (
+    WidgetTester tester,
+  ) async {
+    final TaskService taskService = TaskService();
+
+    await taskService.addTask(
+      const Task(
+        id: 'task-2',
+        name: 'test2',
+        category: 'Work',
+        defaultMinutes: 30,
+      ),
+    );
+    await taskService.addTask(
+      const Task(
+        id: 'task-3',
+        name: 'test3',
+        category: 'Work',
+        defaultMinutes: 30,
+      ),
+    );
+    await taskService.setSelectedTaskId('task-2');
+
+    await tester.pumpWidget(const MaterialApp(home: HomeDashboardScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Logged: test2'), findsOneWidget);
+
+    await tester.tap(find.text('Change'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('test3'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Logged: test3'), findsOneWidget);
+    expect(find.text('Already logged: test3'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+
+    expect(find.text('Already logged: test3'), findsOneWidget);
+  });
+
   test('startActivity preserves earlier blocks in the same 30-minute window', () async {
     final LogService logService = LogService();
     final DateTime now = DateTime.now();
