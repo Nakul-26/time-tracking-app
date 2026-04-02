@@ -64,7 +64,7 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Logged ${task.name} for this 30-minute block.',
+          'Logged ${task.name} for the current 5-minute block.',
         ),
       ),
     );
@@ -197,14 +197,14 @@ class _LogActivityScreenState extends State<LogActivityScreen> {
                     if (_currentActivity != null && currentTask != null)
                       const SizedBox(height: 20),
                     Text(
-                      'What Did You Do?',
+                      'What are you doing right now?',
                       style: theme.textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'This screen should be the fastest possible answer to your external reminder: open app, tap once, continue.',
+                      'Open the app, tap once, and log the current 5-minute block.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF56635D),
                       ),
@@ -352,7 +352,7 @@ class _TaskChoiceCard extends StatelessWidget {
                       ],
                       const SizedBox(height: 6),
                       Text(
-                        'Tap to assign this 30-minute block',
+                        'Tap to log the current 5-minute block',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF56635D),
                         ),
@@ -390,7 +390,7 @@ class _LogHintCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFCFE4D7)),
       ),
       child: Text(
-        'Recommended workflow: set a repeating reminder in Clock or Google Calendar, then use this screen to log what just happened.',
+        'Recommended workflow: set a repeating reminder in Clock or Google Calendar, then use this screen to log what you are doing right now.',
         
         style: theme.textTheme.bodyMedium?.copyWith(
           color: const Color(0xFF56635D),
