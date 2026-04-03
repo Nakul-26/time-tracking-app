@@ -19,6 +19,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
   final SettingsService _settingsService = SettingsService();
 
   List<Task> _tasks = const <Task>[];
+  List<String> _quickPickTaskIds = const <String>[];
   List<String?> _assignments = const <String?>[];
   DateTime? _dayStart;
   DateTime? _dayEnd;
@@ -66,6 +67,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
 
     setState(() {
       _tasks = tasks;
+      _quickPickTaskIds = _buildQuickPickTaskIds(tasks, logs);
       _dayStart = dayStart;
       _dayEnd = dayEnd;
       _assignments = assignments;
@@ -95,10 +97,14 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
 
     final String? selectedTaskId = await showModalBottomSheet<String?>(
       context: context,
+      isScrollControlled: true,
       builder: (BuildContext context) {
         return _TaskPickerSheet(
           tasks: _tasks,
+          quickPickTaskIds: _quickPickTaskIds,
           selectedTaskId: _assignments[blockIndex],
+          blockLabel:
+              '${_formatTime(_blockStartAt(blockIndex))} - ${_formatTime(_blockEndAt(blockIndex))}',
           onSelect: (String? taskId) => Navigator.of(context).pop(taskId),
         );
       },
@@ -117,6 +123,41 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
       _assignments = List<String?>.from(_assignments)
         ..[blockIndex] = selectedTaskId;
     });
+  }
+
+  List<String> _buildQuickPickTaskIds(
+    List<Task> tasks,
+    List<ActivityLog> logs,
+  ) {
+    final List<String> quickPickIds = <String>[];
+    final Set<String> seen = <String>{};
+    final Set<String> taskIds = tasks.map((Task task) => task.id).toSet();
+
+    for (final ActivityLog log in logs) {
+      if (!taskIds.contains(log.taskId)) {
+        continue;
+      }
+
+      if (seen.add(log.taskId)) {
+        quickPickIds.add(log.taskId);
+      }
+
+      if (quickPickIds.length >= 5) {
+        return quickPickIds;
+      }
+    }
+
+    for (final Task task in tasks) {
+      if (seen.add(task.id)) {
+        quickPickIds.add(task.id);
+      }
+
+      if (quickPickIds.length >= 5) {
+        break;
+      }
+    }
+
+    return quickPickIds;
   }
 
   void _assignTaskToSelectedWindow(String? taskId) {
@@ -471,6 +512,148 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
 class _TaskPickerSheet extends StatelessWidget {
   const _TaskPickerSheet({
     required this.tasks,
+    required this.quickPickTaskIds,
+    required this.selectedTaskId,
+    required this.blockLabel,
+    required this.onSelect,
+  });
+
+  final List<Task> tasks;
+  final List<String> quickPickTaskIds;
+  final String? selectedTaskId;
+  final String blockLabel;
+  final ValueChanged<String?> onSelect;
+
+  Future<void> _showAllTasks(BuildContext context) async {
+    final String? selected = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return _AllTasksSheet(
+          tasks: tasks,
+          selectedTaskId: selectedTaskId,
+          onSelect: (String? taskId) => Navigator.of(context).pop(taskId),
+        );
+      },
+    );
+
+    if (!context.mounted || selected == null) {
+      return;
+    }
+
+    Navigator.of(context).pop(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Map<String, Task> tasksById = <String, Task>{
+      for (final Task task in tasks) task.id: task,
+    };
+    final List<Task> quickPicks = quickPickTaskIds
+        .map((String id) => tasksById[id])
+        .whereType<Task>()
+        .toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'What did you do?',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              blockLabel,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF56635D),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (quickPicks.isEmpty)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('No tasks yet'),
+                subtitle: const Text('Add tasks from the task list first.'),
+              )
+            else
+              ...quickPicks.map(
+                (Task task) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => onSelect(task.id),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: selectedTaskId == task.id
+                            ? const Color(0xFF1E847F)
+                            : const Color(0xFFEAF5EF),
+                        foregroundColor: selectedTaskId == task.id
+                            ? Colors.white
+                            : const Color(0xFF15201B),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              task.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: selectedTaskId == task.id
+                                    ? Colors.white
+                                    : const Color(0xFF15201B),
+                              ),
+                            ),
+                          ),
+                          if (selectedTaskId == task.id)
+                            const Icon(Icons.check_circle)
+                          else
+                            const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showAllTasks(context),
+                icon: const Icon(Icons.more_horiz),
+                label: const Text('More'),
+              ),
+            ),
+            TextButton(
+              onPressed: () => onSelect(null),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  const Text('Clear block'),
+                  if (selectedTaskId == null) ...<Widget>[
+                    const SizedBox(width: 8),
+                    const Icon(Icons.check, size: 18, color: Color(0xFF1E847F)),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AllTasksSheet extends StatelessWidget {
+  const _AllTasksSheet({
+    required this.tasks,
     required this.selectedTaskId,
     required this.onSelect,
   });
@@ -491,7 +674,7 @@ class _TaskPickerSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              'Assign Task',
+              'All Tasks',
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -510,14 +693,6 @@ class _TaskPickerSheet extends StatelessWidget {
                           : null,
                       onTap: () => onSelect(task.id),
                     ),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Clear'),
-                    trailing: selectedTaskId == null
-                        ? const Icon(Icons.check, color: Color(0xFF1E847F))
-                        : null,
-                    onTap: () => onSelect(null),
                   ),
                 ],
               ),
