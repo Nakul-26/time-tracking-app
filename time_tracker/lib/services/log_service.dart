@@ -101,6 +101,47 @@ class LogService {
     );
   }
 
+  Future<void> fillForwardEmptySlots(
+    String taskId, {
+    required Duration duration,
+    DateTime? now,
+  }) async {
+    final int blockCount = duration.inMinutes ~/ retroBlockSize.inMinutes;
+    if (blockCount <= 0) {
+      return;
+    }
+
+    final DateTime effectiveNow = now ?? DateTime.now();
+    final DateTime rangeStart = subslotStartFor(effectiveNow);
+    final List<ActivityLog> logs = await getLogs();
+    final List<String?> assignments = buildAssignmentsForRange(
+      logs,
+      rangeStart,
+      blockCount,
+      now: effectiveNow,
+    );
+    final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
+
+    for (int index = 0; index < assignments.length; index += 1) {
+      if (assignments[index] != null) {
+        continue;
+      }
+
+      final DateTime slotStart = rangeStart.add(
+        Duration(minutes: index * retroBlockSize.inMinutes),
+      );
+      await box.put(
+        slotStart.toIso8601String(),
+        ActivityLog(
+          id: slotStart.toIso8601String(),
+          taskId: taskId,
+          startTime: slotStart,
+          endTime: slotStart.add(retroBlockSize),
+        ).toMap(),
+      );
+    }
+  }
+
   Future<void> assignSlots(
     DateTime windowStart,
     List<String?> taskIds,

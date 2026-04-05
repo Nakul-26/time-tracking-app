@@ -34,6 +34,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   bool _isLoading = true;
   bool _showTaskChoices = false;
   bool _justLogged = false;
+  String? _continueTaskName;
+  String? _continueTaskId;
   _CurrentBlockStatus _currentBlockStatus = _CurrentBlockStatus.empty;
   Timer? _justLoggedTimer;
 
@@ -163,6 +165,31 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     setState(() {
       _showTaskChoices = false;
       _currentBlockStatus = _CurrentBlockStatus.logged;
+      _continueTaskId = task.id;
+      _continueTaskName = task.name;
+    });
+    await _loadDashboard();
+  }
+
+  Future<void> _continueTask(Duration duration) async {
+    final String? taskId = _continueTaskId;
+    final String? taskName = _continueTaskName;
+    if (taskId == null || taskName == null) {
+      return;
+    }
+
+    await _logService.fillForwardEmptySlots(taskId, duration: duration);
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$taskName continued for ${duration.inMinutes} min')),
+    );
+
+    setState(() {
+      _continueTaskId = null;
+      _continueTaskName = null;
     });
     await _loadDashboard();
   }
@@ -390,10 +417,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       currentTaskName: _currentActivity?.taskName,
                       currentBlockStatus: _currentBlockStatus,
                       showTaskChoices: _showTaskChoices,
+                      continueTaskName: _continueTaskName,
                       onTaskTap: _logNow,
+                      onContinueTap: _continueTask,
                       onChangeTap: () {
                         setState(() {
                           _showTaskChoices = true;
+                          _continueTaskId = null;
+                          _continueTaskName = null;
                         });
                       },
                       onManageTasks: _openTaskListScreen,
@@ -760,7 +791,9 @@ class _LogNowSection extends StatelessWidget {
     required this.currentTaskName,
     required this.currentBlockStatus,
     required this.showTaskChoices,
+    required this.continueTaskName,
     required this.onTaskTap,
+    required this.onContinueTap,
     required this.onChangeTap,
     required this.onManageTasks,
   });
@@ -771,7 +804,9 @@ class _LogNowSection extends StatelessWidget {
   final String? currentTaskName;
   final _CurrentBlockStatus currentBlockStatus;
   final bool showTaskChoices;
+  final String? continueTaskName;
   final ValueChanged<Task> onTaskTap;
+  final ValueChanged<Duration> onContinueTap;
   final VoidCallback onChangeTap;
   final VoidCallback onManageTasks;
 
@@ -822,6 +857,32 @@ class _LogNowSection extends StatelessWidget {
               ),
               child: const Text('Change'),
             ),
+            if (continueTaskName != null) ...<Widget>[
+              const SizedBox(height: 12),
+              Text(
+                '$continueTaskName logged',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: const Color(0xFF56635D),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: <Widget>[
+                  OutlinedButton(
+                    onPressed: () =>
+                        onContinueTap(const Duration(minutes: 15)),
+                    child: const Text('Continue 15 min'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () =>
+                        onContinueTap(const Duration(minutes: 30)),
+                    child: const Text('Continue 30 min'),
+                  ),
+                ],
+              ),
+            ],
           ] else ...<Widget>[
             SizedBox(
               width: double.infinity,
