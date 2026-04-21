@@ -56,11 +56,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       now.day,
       activeStartHour,
     );
-    final DateTime windowEnd = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).add(
+    final DateTime windowEnd = DateTime(now.year, now.month, now.day).add(
       activeEndHour == 24
           ? const Duration(days: 1)
           : Duration(hours: activeEndHour),
@@ -68,19 +64,20 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     final Map<String, Task> tasksById = <String, Task>{
       for (final Task task in tasks) task.id: task,
     };
-    final List<_TimelineEntry> loggedEntries = allLogs
-        .map(
-          (ActivityLog log) => _clipLogToWindow(
-            log: log,
-            tasksById: tasksById,
-            now: now,
-            windowStart: windowStart,
-            windowEnd: windowEnd,
-          ),
-        )
-        .whereType<_TimelineEntry>()
-        .toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final List<_TimelineEntry> loggedEntries =
+        allLogs
+            .map(
+              (ActivityLog log) => _clipLogToWindow(
+                log: log,
+                tasksById: tasksById,
+                now: now,
+                windowStart: windowStart,
+                windowEnd: windowEnd,
+              ),
+            )
+            .whereType<_TimelineEntry>()
+            .toList()
+          ..sort((a, b) => a.startTime.compareTo(b.startTime));
     final List<_TimelineEntry> entries = _withUnknownSlots(
       loggedEntries,
       windowStart,
@@ -112,10 +109,12 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     }
 
     final DateTime effectiveEnd = _logService.effectiveEndTime(log, now: now);
-    final DateTime clippedStart =
-        log.startTime.isBefore(windowStart) ? windowStart : log.startTime;
-    final DateTime clippedEnd =
-        effectiveEnd.isAfter(windowEnd) ? windowEnd : effectiveEnd;
+    final DateTime clippedStart = log.startTime.isBefore(windowStart)
+        ? windowStart
+        : log.startTime;
+    final DateTime clippedEnd = effectiveEnd.isAfter(windowEnd)
+        ? windowEnd
+        : effectiveEnd;
 
     if (!clippedEnd.isAfter(clippedStart)) {
       return null;
@@ -144,8 +143,8 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
 
     for (final _TimelineEntry entry in entries) {
       if (entry.startTime.isAfter(cursor)) {
-        filledEntries.add(
-          _unknownEntry(cursor, entry.startTime, now),
+        filledEntries.addAll(
+          _unknownEntriesForGap(cursor, entry.startTime, now),
         );
       }
       filledEntries.add(entry);
@@ -155,23 +154,37 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     }
 
     if (effectiveEnd.isAfter(cursor)) {
-      filledEntries.add(_unknownEntry(cursor, effectiveEnd, now));
+      filledEntries.addAll(_unknownEntriesForGap(cursor, effectiveEnd, now));
     }
 
     return filledEntries;
   }
 
-  _TimelineEntry _unknownEntry(
+  List<_TimelineEntry> _unknownEntriesForGap(
     DateTime start,
     DateTime end,
     DateTime now,
   ) {
+    final List<_TimelineEntry> entries = <_TimelineEntry>[];
+    DateTime cursor = start;
+
+    while (cursor.isBefore(end)) {
+      final DateTime blockEnd = cursor.add(LogService.retroBlockSize);
+      final DateTime clippedEnd = blockEnd.isBefore(end) ? blockEnd : end;
+      entries.add(_unknownEntry(cursor, clippedEnd, now));
+      cursor = clippedEnd;
+    }
+
+    return entries;
+  }
+
+  _TimelineEntry _unknownEntry(DateTime start, DateTime end, DateTime now) {
     return _TimelineEntry(
       taskId: '__unknown__',
       startTime: start,
       endTime: end,
-      label: 'Unknown',
-      color: const Color(0xFFD7DCD8),
+      label: 'Not logged',
+      color: const Color(0xFFFFB74D),
       isActive: !now.isBefore(start) && now.isBefore(end),
     );
   }
@@ -185,7 +198,8 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       Color(0xFFC74646),
       Color(0xFF597445),
     ];
-    final int index = taskId.codeUnits.fold<int>(
+    final int index =
+        taskId.codeUnits.fold<int>(
           0,
           (int value, int codeUnit) => value + codeUnit,
         ) %
@@ -228,23 +242,23 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
             children: <Widget>[
               Text(
                 entry.label,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               Text(
                 '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: const Color(0xFF56635D),
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: const Color(0xFF56635D)),
               ),
               const SizedBox(height: 8),
               Text(
                 '${entry.minutes} minutes',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF7A867F),
-                    ),
+                  color: const Color(0xFF7A867F),
+                ),
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -272,6 +286,9 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final int missingBlockCount = _entries
+        .where((_TimelineEntry entry) => entry.isUnknown)
+        .length;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Today View')),
@@ -303,6 +320,10 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                       Expanded(
                         child: ListView(
                           children: <Widget>[
+                            if (missingBlockCount > 0) ...<Widget>[
+                              _MissingBlocksBanner(count: missingBlockCount),
+                              const SizedBox(height: 16),
+                            ],
                             _TimelineStrip(
                               entries: _entries,
                               markers: _timelineMarkers(),
@@ -319,6 +340,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                                       '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
                                   label: entry.label,
                                   color: entry.color,
+                                  isUnknown: entry.isUnknown,
                                 ),
                               ),
                             ),
@@ -393,6 +415,44 @@ class _TimelineEntry {
   final bool isActive;
 
   int get minutes => endTime.difference(startTime).inMinutes.clamp(1, 1440);
+  bool get isUnknown => taskId == '__unknown__';
+}
+
+class _MissingBlocksBanner extends StatelessWidget {
+  const _MissingBlocksBanner({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final String blockLabel = count == 1 ? 'block' : 'blocks';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFB74D)),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.help_outline, color: Color(0xFFB45309)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'You have $count missing $blockLabel',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF7C2D12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TimelineStrip extends StatelessWidget {
@@ -430,7 +490,11 @@ class _TimelineStrip extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  for (int index = 0; index < entries.length; index += 1) ...<Widget>[
+                  for (
+                    int index = 0;
+                    index < entries.length;
+                    index += 1
+                  ) ...<Widget>[
                     Expanded(
                       flex: entries[index].minutes,
                       child: Tooltip(
@@ -444,6 +508,11 @@ class _TimelineStrip extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                               border: entries[index].isActive
                                   ? Border.all(color: Colors.white, width: 2)
+                                  : entries[index].isUnknown
+                                  ? Border.all(
+                                      color: const Color(0xFFC2410C),
+                                      width: 1,
+                                    )
                                   : null,
                             ),
                           ),
@@ -464,8 +533,8 @@ class _TimelineStrip extends StatelessWidget {
                   (String marker) => Text(
                     marker,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF66746C),
-                        ),
+                      color: const Color(0xFF66746C),
+                    ),
                   ),
                 )
                 .toList(),
@@ -518,11 +587,13 @@ class _TimelineCard extends StatelessWidget {
     required this.timeRange,
     required this.label,
     required this.color,
+    required this.isUnknown,
   });
 
   final String timeRange;
   final String label;
   final Color color;
+  final bool isUnknown;
 
   @override
   Widget build(BuildContext context) {
@@ -531,9 +602,11 @@ class _TimelineCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isUnknown ? const Color(0xFFFFF7ED) : Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE1E7E2)),
+        border: Border.all(
+          color: isUnknown ? const Color(0xFFFFB74D) : const Color(0xFFE1E7E2),
+        ),
       ),
       child: Row(
         children: <Widget>[
@@ -558,12 +631,28 @@ class _TimelineCard extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF15201B),
-              ),
+            child: Row(
+              children: <Widget>[
+                if (isUnknown) ...<Widget>[
+                  const Icon(
+                    Icons.help_outline,
+                    color: Color(0xFFB45309),
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    label,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: isUnknown
+                          ? const Color(0xFF7C2D12)
+                          : const Color(0xFF15201B),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
