@@ -22,6 +22,8 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
   final SettingsService _settingsService = SettingsService();
 
   List<_TimelineEntry> _entries = const <_TimelineEntry>[];
+  List<Task> _tasks = const <Task>[];
+  List<String> _quickPickTaskIds = const <String>[];
   int _activeStartHour = 7;
   int _activeEndHour = 24;
   bool _isLoading = true;
@@ -91,10 +93,47 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
 
     setState(() {
       _entries = entries;
+      _tasks = tasks;
+      _quickPickTaskIds = _buildQuickPickTaskIds(tasks, allLogs);
       _activeStartHour = activeStartHour;
       _activeEndHour = activeEndHour;
       _isLoading = false;
     });
+  }
+
+  List<String> _buildQuickPickTaskIds(
+    List<Task> tasks,
+    List<ActivityLog> logs,
+  ) {
+    final List<String> quickPickIds = <String>[];
+    final Set<String> seen = <String>{};
+    final Set<String> taskIds = tasks.map((Task task) => task.id).toSet();
+
+    for (final ActivityLog log in logs) {
+      if (!taskIds.contains(log.taskId)) {
+        continue;
+      }
+
+      if (seen.add(log.taskId)) {
+        quickPickIds.add(log.taskId);
+      }
+
+      if (quickPickIds.length >= 5) {
+        return quickPickIds;
+      }
+    }
+
+    for (final Task task in tasks) {
+      if (seen.add(task.id)) {
+        quickPickIds.add(task.id);
+      }
+
+      if (quickPickIds.length >= 5) {
+        break;
+      }
+    }
+
+    return quickPickIds;
   }
 
   _TimelineEntry? _clipLogToWindow({
@@ -283,6 +322,44 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     );
   }
 
+  Future<void> _openTaskPicker(_TimelineEntry entry) async {
+    final String? selectedTaskId = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return TaskPickerSheet(
+          tasks: _tasks,
+          quickPickTaskIds: _quickPickTaskIds,
+          selectedTaskId: null,
+          blockLabel:
+              '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
+          allowClear: false,
+          onSelect: (String? taskId) => Navigator.of(context).pop(taskId),
+        );
+      },
+    );
+
+    if (!mounted || selectedTaskId == null) {
+      return;
+    }
+
+    await _logService.assignSlots(entry.startTime, <String?>[selectedTaskId]);
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadTimeline();
+  }
+
+  Future<void> _handleTimelineEntryTap(_TimelineEntry entry) {
+    if (entry.isUnknown) {
+      return _openTaskPicker(entry);
+    }
+
+    return _openSessionSheet(entry);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -327,7 +404,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                             _TimelineStrip(
                               entries: _entries,
                               markers: _timelineMarkers(),
-                              onTapEntry: _openSessionSheet,
+                              onTapEntry: _handleTimelineEntryTap,
                             ),
                             const SizedBox(height: 20),
                             _TimelineLegend(entries: _entries),
@@ -341,6 +418,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
                                   label: entry.label,
                                   color: entry.color,
                                   isUnknown: entry.isUnknown,
+                                  onTap: () => _handleTimelineEntryTap(entry),
                                 ),
                               ),
                             ),
@@ -588,74 +666,81 @@ class _TimelineCard extends StatelessWidget {
     required this.label,
     required this.color,
     required this.isUnknown,
+    required this.onTap,
   });
 
   final String timeRange;
   final String label;
   final Color color;
   final bool isUnknown;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: isUnknown ? const Color(0xFFFFF7ED) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isUnknown ? const Color(0xFFFFB74D) : const Color(0xFFE1E7E2),
-        ),
-      ),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 10,
-            height: 48,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(999),
-            ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: isUnknown ? const Color(0xFFFFF7ED) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isUnknown
+                ? const Color(0xFFFFB74D)
+                : const Color(0xFFE1E7E2),
           ),
-          const SizedBox(width: 14),
-          SizedBox(
-            width: 118,
-            child: Text(
-              timeRange,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF33413A),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 10,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Row(
-              children: <Widget>[
-                if (isUnknown) ...<Widget>[
-                  const Icon(
-                    Icons.help_outline,
-                    color: Color(0xFFB45309),
-                    size: 22,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: isUnknown
-                          ? const Color(0xFF7C2D12)
-                          : const Color(0xFF15201B),
+            const SizedBox(width: 14),
+            SizedBox(
+              width: 118,
+              child: Text(
+                timeRange,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF33413A),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Row(
+                children: <Widget>[
+                  if (isUnknown) ...<Widget>[
+                    const Icon(
+                      Icons.help_outline,
+                      color: Color(0xFFB45309),
+                      size: 22,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: isUnknown
+                            ? const Color(0xFF7C2D12)
+                            : const Color(0xFF15201B),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -99,7 +99,7 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
       context: context,
       isScrollControlled: true,
       builder: (BuildContext context) {
-        return _TaskPickerSheet(
+        return TaskPickerSheet(
           tasks: _tasks,
           quickPickTaskIds: _quickPickTaskIds,
           selectedTaskId: _assignments[blockIndex],
@@ -509,13 +509,15 @@ class _RetroEditScreenState extends State<RetroEditScreen> {
   }
 }
 
-class _TaskPickerSheet extends StatelessWidget {
-  const _TaskPickerSheet({
+class TaskPickerSheet extends StatelessWidget {
+  const TaskPickerSheet({
+    super.key,
     required this.tasks,
     required this.quickPickTaskIds,
     required this.selectedTaskId,
     required this.blockLabel,
     required this.onSelect,
+    this.allowClear = true,
   });
 
   final List<Task> tasks;
@@ -523,6 +525,7 @@ class _TaskPickerSheet extends StatelessWidget {
   final String? selectedTaskId;
   final String blockLabel;
   final ValueChanged<String?> onSelect;
+  final bool allowClear;
 
   Future<void> _showAllTasks(BuildContext context) async {
     final String? selected = await showModalBottomSheet<String?>(
@@ -631,19 +634,24 @@ class _TaskPickerSheet extends StatelessWidget {
                 label: const Text('More'),
               ),
             ),
-            TextButton(
-              onPressed: () => onSelect(null),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  const Text('Clear block'),
-                  if (selectedTaskId == null) ...<Widget>[
-                    const SizedBox(width: 8),
-                    const Icon(Icons.check, size: 18, color: Color(0xFF1E847F)),
+            if (allowClear)
+              TextButton(
+                onPressed: () => onSelect(null),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    const Text('Clear block'),
+                    if (selectedTaskId == null) ...<Widget>[
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.check,
+                        size: 18,
+                        color: Color(0xFF1E847F),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
           ],
         ),
       ),

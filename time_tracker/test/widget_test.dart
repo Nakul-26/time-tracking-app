@@ -8,7 +8,9 @@ import 'package:time_tracker/models/activity_log.dart';
 import 'package:time_tracker/models/task.dart';
 import 'package:time_tracker/screens/home_dashboard_screen.dart';
 import 'package:time_tracker/screens/task_list_screen.dart';
+import 'package:time_tracker/screens/today_timeline_screen.dart';
 import 'package:time_tracker/services/log_service.dart';
+import 'package:time_tracker/services/settings_service.dart';
 import 'package:time_tracker/services/task_service.dart';
 
 Future<void> main() async {
@@ -26,6 +28,16 @@ Future<void> main() async {
     await Hive.deleteBoxFromDisk('settings');
     Hive.init(tempDir.path);
   });
+
+  Future<void> pumpAsyncUi(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  Future<void> pumpSheetUi(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
 
   testWidgets('renders task management screen shell', (
     WidgetTester tester,
@@ -85,7 +97,7 @@ Future<void> main() async {
     await taskService.setSelectedTaskId('task-2');
 
     await tester.pumpWidget(const MaterialApp(home: HomeDashboardScreen()));
-    await tester.pumpAndSettle();
+    await pumpAsyncUi(tester);
 
     expect(find.text('What are you doing right now?'), findsNothing);
     expect(find.text('Logged: test2'), findsOneWidget);
@@ -101,7 +113,7 @@ Future<void> main() async {
     expect(logsBox.length, 1);
 
     await tester.tap(find.text('Change'));
-    await tester.pumpAndSettle();
+    await pumpSheetUi(tester);
 
     expect(find.text('test2'), findsOneWidget);
     expect(find.text('test3'), findsOneWidget);
@@ -142,7 +154,7 @@ Future<void> main() async {
     );
 
     await tester.pumpWidget(const MaterialApp(home: HomeDashboardScreen()));
-    await tester.pumpAndSettle();
+    await pumpAsyncUi(tester);
 
     expect(find.text('Already logged: test3'), findsOneWidget);
     expect(find.text('Change'), findsOneWidget);
@@ -178,12 +190,12 @@ Future<void> main() async {
     await taskService.setSelectedTaskId('task-2');
 
     await tester.pumpWidget(const MaterialApp(home: HomeDashboardScreen()));
-    await tester.pumpAndSettle();
+    await pumpAsyncUi(tester);
 
     expect(find.text('Logged: test2'), findsOneWidget);
 
     await tester.tap(find.text('Change'));
-    await tester.pumpAndSettle();
+    await pumpSheetUi(tester);
     await tester.tap(find.text('test3'));
     await tester.pump();
     await tester.pump();
@@ -197,35 +209,40 @@ Future<void> main() async {
     expect(find.text('Already logged: test3'), findsOneWidget);
   });
 
-  test('startActivity preserves earlier blocks in the same 30-minute window', () async {
-    final LogService logService = LogService();
-    final DateTime now = DateTime.now();
-    final DateTime slotStart = logService.subslotStartFor(now);
-    final DateTime earlierBlockStart = slotStart.subtract(
-      LogService.retroBlockSize,
-    );
+  test(
+    'startActivity preserves earlier blocks in the same 30-minute window',
+    () async {
+      final LogService logService = LogService();
+      final DateTime now = DateTime.now();
+      final DateTime slotStart = logService.subslotStartFor(now);
+      final DateTime earlierBlockStart = slotStart.subtract(
+        LogService.retroBlockSize,
+      );
 
-    await logService.addLog(
-      ActivityLog(
-        id: earlierBlockStart.toIso8601String(),
-        taskId: 'task-1',
-        startTime: earlierBlockStart,
-        endTime: earlierBlockStart.add(LogService.retroBlockSize),
-      ),
-    );
+      await logService.addLog(
+        ActivityLog(
+          id: earlierBlockStart.toIso8601String(),
+          taskId: 'task-1',
+          startTime: earlierBlockStart,
+          endTime: earlierBlockStart.add(LogService.retroBlockSize),
+        ),
+      );
 
-    await logService.startActivity('task-2', now);
+      await logService.startActivity('task-2', now);
 
-    final Box<dynamic> logsBox = await Hive.openBox<dynamic>('logs');
-    final dynamic earlierRawLog = logsBox.get(earlierBlockStart.toIso8601String());
-    final dynamic currentRawLog = logsBox.get(slotStart.toIso8601String());
+      final Box<dynamic> logsBox = await Hive.openBox<dynamic>('logs');
+      final dynamic earlierRawLog = logsBox.get(
+        earlierBlockStart.toIso8601String(),
+      );
+      final dynamic currentRawLog = logsBox.get(slotStart.toIso8601String());
 
-    expect(earlierRawLog, isA<Map<dynamic, dynamic>>());
-    expect((earlierRawLog as Map<dynamic, dynamic>)['taskId'], 'task-1');
-    expect(currentRawLog, isA<Map<dynamic, dynamic>>());
-    expect((currentRawLog as Map<dynamic, dynamic>)['taskId'], 'task-2');
-    expect(logsBox.length, 2);
-  });
+      expect(earlierRawLog, isA<Map<dynamic, dynamic>>());
+      expect((earlierRawLog as Map<dynamic, dynamic>)['taskId'], 'task-1');
+      expect(currentRawLog, isA<Map<dynamic, dynamic>>());
+      expect((currentRawLog as Map<dynamic, dynamic>)['taskId'], 'task-2');
+      expect(logsBox.length, 2);
+    },
+  );
 
   testWidgets('continue fills forward empty blocks without overwriting logs', (
     WidgetTester tester,
@@ -268,12 +285,12 @@ Future<void> main() async {
     );
 
     await tester.pumpWidget(const MaterialApp(home: HomeDashboardScreen()));
-    await tester.pumpAndSettle();
+    await pumpAsyncUi(tester);
 
     await tester.tap(find.text('Change'));
-    await tester.pumpAndSettle();
+    await pumpSheetUi(tester);
     await tester.tap(find.text('test3'));
-    await tester.pumpAndSettle();
+    await pumpSheetUi(tester);
 
     expect(find.text('test3 logged'), findsOneWidget);
     expect(find.text('Continue 15 min'), findsOneWidget);
@@ -281,10 +298,12 @@ Future<void> main() async {
 
     await tester.tap(find.text('Continue 15 min'));
     await tester.pump();
-    await tester.pumpAndSettle();
+    await pumpAsyncUi(tester);
 
     final Box<dynamic> logsBox = await Hive.openBox<dynamic>('logs');
-    final dynamic currentRawLog = logsBox.get(currentBlockStart.toIso8601String());
+    final dynamic currentRawLog = logsBox.get(
+      currentBlockStart.toIso8601String(),
+    );
     final dynamic nextRawLog = logsBox.get(nextBlockStart.toIso8601String());
     final dynamic secondFutureRawLog = logsBox.get(
       secondFutureBlockStart.toIso8601String(),
@@ -297,5 +316,47 @@ Future<void> main() async {
     expect(secondFutureRawLog, isA<Map<dynamic, dynamic>>());
     expect((secondFutureRawLog as Map<dynamic, dynamic>)['taskId'], 'task-2');
     expect(logsBox.length, 3);
+  });
+
+  testWidgets('tapping a not logged timeline block assigns it instantly', (
+    WidgetTester tester,
+  ) async {
+    final TaskService taskService = TaskService();
+    final SettingsService settingsService = SettingsService();
+    final DateTime now = DateTime.now();
+
+    await settingsService.setActiveStartHour(now.hour);
+    await settingsService.setActiveEndHour(24);
+    await taskService.addTask(
+      const Task(
+        id: 'task-coding',
+        name: 'Coding',
+        category: 'Work',
+        defaultMinutes: 30,
+      ),
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: TodayTimelineScreen()));
+    await pumpAsyncUi(tester);
+
+    expect(find.text('Not logged'), findsWidgets);
+
+    await tester.ensureVisible(find.text('Not logged').last);
+    await tester.tap(find.text('Not logged').last);
+    await pumpSheetUi(tester);
+
+    expect(find.text('What did you do?'), findsOneWidget);
+
+    await tester.tap(find.text('Coding'));
+    await pumpSheetUi(tester);
+
+    final Box<dynamic> logsBox = await Hive.openBox<dynamic>('logs');
+    final bool wroteCodingLog = logsBox.values.any((dynamic rawLog) {
+      return rawLog is Map<dynamic, dynamic> &&
+          rawLog['taskId'] == 'task-coding';
+    });
+
+    expect(wroteCodingLog, isTrue);
+    expect(find.text('What did you do?'), findsNothing);
   });
 }
