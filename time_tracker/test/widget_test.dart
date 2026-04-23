@@ -20,12 +20,17 @@ Future<void> main() async {
   );
   Hive.init(tempDir.path);
 
+  setUp(() {
+    TodayTimelineScreen.isTestMode = true;
+  });
+
   tearDown(() async {
     await Hive.close();
     await Hive.deleteBoxFromDisk('logs');
     await Hive.deleteBoxFromDisk('tasks');
     await Hive.deleteBoxFromDisk('task_settings');
     await Hive.deleteBoxFromDisk('settings');
+    TodayTimelineScreen.isTestMode = false;
     Hive.init(tempDir.path);
   });
 
@@ -358,5 +363,66 @@ Future<void> main() async {
 
     expect(wroteCodingLog, isTrue);
     expect(find.text('What did you do?'), findsNothing);
+  });
+
+  testWidgets('picker suggests the last logged task at the top', (
+    WidgetTester tester,
+  ) async {
+    final TaskService taskService = TaskService();
+    final LogService logService = LogService();
+    final SettingsService settingsService = SettingsService();
+    final DateTime now = DateTime.now();
+    final DateTime lastBlockStart = logService
+        .subslotStartFor(now)
+        .subtract(LogService.retroBlockSize);
+
+    await settingsService.setActiveStartHour(now.hour);
+    await settingsService.setActiveEndHour(24);
+    await taskService.addTask(
+      const Task(
+        id: 'task-coding',
+        name: 'Coding',
+        category: 'Work',
+        defaultMinutes: 30,
+      ),
+    );
+    await taskService.addTask(
+      const Task(
+        id: 'task-study',
+        name: 'Study',
+        category: 'Work',
+        defaultMinutes: 30,
+      ),
+    );
+    await logService.addLog(
+      ActivityLog(
+        id: lastBlockStart.toIso8601String(),
+        taskId: 'task-coding',
+        startTime: lastBlockStart,
+        endTime: lastBlockStart.add(LogService.retroBlockSize),
+      ),
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: TodayTimelineScreen()));
+    await pumpAsyncUi(tester);
+
+    await tester.ensureVisible(find.text('Not logged').first);
+    await tester.tap(find.text('Not logged').first);
+    await pumpSheetUi(tester);
+
+    expect(find.text('What did you do?'), findsOneWidget);
+    expect(find.text('Suggested'), findsOneWidget);
+    expect(find.text('All Tasks'), findsOneWidget);
+    expect(find.text('Coding'), findsOneWidget);
+
+    final Offset suggestedTop = tester.getTopLeft(find.text('Suggested'));
+    final Offset codingTop = tester.getTopLeft(find.text('Coding'));
+    final Offset allTasksTop = tester.getTopLeft(find.text('All Tasks'));
+
+    expect(suggestedTop.dy, lessThan(codingTop.dy));
+    expect(codingTop.dy, lessThan(allTasksTop.dy));
+
+    await tester.tap(find.text('Coding'));
+    await pumpSheetUi(tester);
   });
 }

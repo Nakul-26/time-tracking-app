@@ -35,13 +35,20 @@ class LogService {
 
   Future<List<ActivityLog>> getLogs() async {
     final Box<dynamic> box = await Hive.openBox<dynamic>(_logsBoxName);
-    final List<ActivityLog> logs = box.keys.map((dynamic key) {
-      final dynamic rawLog = box.get(key, defaultValue: <String, dynamic>{});
-      final Map<dynamic, dynamic> logMap =
-          rawLog is Map<dynamic, dynamic> ? rawLog : <String, dynamic>{};
+    final List<ActivityLog> logs = box.keys
+        .map((dynamic key) {
+          final dynamic rawLog = box.get(
+            key,
+            defaultValue: <String, dynamic>{},
+          );
+          final Map<dynamic, dynamic> logMap = rawLog is Map<dynamic, dynamic>
+              ? rawLog
+              : <String, dynamic>{};
 
-      return _normalizeLog(ActivityLog.fromMap(key.toString(), logMap));
-    }).where(_isLogLongEnough).toList();
+          return _normalizeLog(ActivityLog.fromMap(key.toString(), logMap));
+        })
+        .where(_isLogLongEnough)
+        .toList();
 
     logs.sort(
       (ActivityLog a, ActivityLog b) => b.startTime.compareTo(a.startTime),
@@ -74,6 +81,18 @@ class LogService {
     }
 
     return taskId;
+  }
+
+  Future<String?> getLastLoggedTaskId() async {
+    final List<ActivityLog> logs = await getLogs();
+
+    for (final ActivityLog log in logs) {
+      if (!_isUnknownTaskId(log.taskId)) {
+        return log.taskId;
+      }
+    }
+
+    return null;
   }
 
   Future<bool> isCurrentBlockEmpty([DateTime? now]) async {
@@ -142,10 +161,7 @@ class LogService {
     }
   }
 
-  Future<void> assignSlots(
-    DateTime windowStart,
-    List<String?> taskIds,
-  ) async {
+  Future<void> assignSlots(DateTime windowStart, List<String?> taskIds) async {
     final DateTime normalizedStart = subslotStartFor(windowStart);
     final DateTime windowEnd = normalizedStart.add(
       Duration(minutes: retroBlockSize.inMinutes * taskIds.length),
@@ -156,7 +172,8 @@ class LogService {
 
     for (final ActivityLog log in logs) {
       final DateTime logEnd = effectiveEndTime(log);
-      if (!log.startTime.isBefore(windowEnd) || !logEnd.isAfter(normalizedStart)) {
+      if (!log.startTime.isBefore(windowEnd) ||
+          !logEnd.isAfter(normalizedStart)) {
         rewrittenLogs.add(
           ActivityLog(
             id: log.startTime.toIso8601String(),
@@ -248,17 +265,21 @@ class LogService {
   }
 
   int durationMinutesForLog(ActivityLog log, {DateTime? now}) {
-    final int minutes = effectiveEndTime(log).difference(log.startTime).inMinutes;
+    final int minutes = effectiveEndTime(
+      log,
+    ).difference(log.startTime).inMinutes;
     return minutes < 0 ? 0 : minutes;
   }
 
   int overlapMinutesForDay(ActivityLog log, DateTime day, {DateTime? now}) {
     final DateTime startOfDay = DateTime(day.year, day.month, day.day);
     final DateTime endOfDay = startOfDay.add(const Duration(days: 1));
-    final DateTime overlapStart =
-        log.startTime.isAfter(startOfDay) ? log.startTime : startOfDay;
-    final DateTime overlapEnd =
-        effectiveEndTime(log).isBefore(endOfDay) ? effectiveEndTime(log) : endOfDay;
+    final DateTime overlapStart = log.startTime.isAfter(startOfDay)
+        ? log.startTime
+        : startOfDay;
+    final DateTime overlapEnd = effectiveEndTime(log).isBefore(endOfDay)
+        ? effectiveEndTime(log)
+        : endOfDay;
 
     if (!overlapEnd.isAfter(overlapStart)) {
       return 0;
@@ -292,8 +313,8 @@ class LogService {
   }
 
   DateTime subslotStartFor(DateTime value) {
-    final int flooredMinute = (value.minute ~/ retroBlockSize.inMinutes) *
-        retroBlockSize.inMinutes;
+    final int flooredMinute =
+        (value.minute ~/ retroBlockSize.inMinutes) * retroBlockSize.inMinutes;
     return DateTime(
       value.year,
       value.month,
@@ -323,7 +344,8 @@ class LogService {
   }
 
   bool _isLogLongEnough(ActivityLog log) {
-    return effectiveEndTime(log).difference(log.startTime) >= minimumLogDuration;
+    return effectiveEndTime(log).difference(log.startTime) >=
+        minimumLogDuration;
   }
 
   bool _isUnknownTaskId(String? taskId) {

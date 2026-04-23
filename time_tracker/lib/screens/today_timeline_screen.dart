@@ -12,6 +12,8 @@ import 'retro_edit_screen.dart';
 class TodayTimelineScreen extends StatefulWidget {
   const TodayTimelineScreen({super.key});
 
+  static bool isTestMode = false;
+
   @override
   State<TodayTimelineScreen> createState() => _TodayTimelineScreenState();
 }
@@ -23,7 +25,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
 
   List<_TimelineEntry> _entries = const <_TimelineEntry>[];
   List<Task> _tasks = const <Task>[];
-  List<String> _quickPickTaskIds = const <String>[];
+  String? _suggestedTaskId;
   int _activeStartHour = 7;
   int _activeEndHour = 24;
   bool _isLoading = true;
@@ -33,11 +35,13 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
   void initState() {
     super.initState();
     _loadTimeline();
-    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) {
-        _loadTimeline();
-      }
-    });
+    if (!TodayTimelineScreen.isTestMode) {
+      _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+        if (mounted) {
+          _loadTimeline();
+        }
+      });
+    }
   }
 
   @override
@@ -49,6 +53,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
   Future<void> _loadTimeline() async {
     final List<ActivityLog> allLogs = await _logService.getLogs();
     final List<Task> tasks = await _taskService.getTasks();
+    final String? suggestedTaskId = await _logService.getLastLoggedTaskId();
     final int activeStartHour = await _settingsService.getActiveStartHour();
     final int activeEndHour = await _settingsService.getActiveEndHour();
     final DateTime now = DateTime.now();
@@ -94,46 +99,31 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
     setState(() {
       _entries = entries;
       _tasks = tasks;
-      _quickPickTaskIds = _buildQuickPickTaskIds(tasks, allLogs);
+      _suggestedTaskId = _buildSuggestedTaskId(tasks, allLogs, suggestedTaskId);
       _activeStartHour = activeStartHour;
       _activeEndHour = activeEndHour;
       _isLoading = false;
     });
   }
 
-  List<String> _buildQuickPickTaskIds(
+  String? _buildSuggestedTaskId(
     List<Task> tasks,
     List<ActivityLog> logs,
+    String? suggestedTaskId,
   ) {
-    final List<String> quickPickIds = <String>[];
-    final Set<String> seen = <String>{};
     final Set<String> taskIds = tasks.map((Task task) => task.id).toSet();
 
+    if (suggestedTaskId != null && taskIds.contains(suggestedTaskId)) {
+      return suggestedTaskId;
+    }
+
     for (final ActivityLog log in logs) {
-      if (!taskIds.contains(log.taskId)) {
-        continue;
-      }
-
-      if (seen.add(log.taskId)) {
-        quickPickIds.add(log.taskId);
-      }
-
-      if (quickPickIds.length >= 5) {
-        return quickPickIds;
+      if (taskIds.contains(log.taskId)) {
+        return log.taskId;
       }
     }
 
-    for (final Task task in tasks) {
-      if (seen.add(task.id)) {
-        quickPickIds.add(task.id);
-      }
-
-      if (quickPickIds.length >= 5) {
-        break;
-      }
-    }
-
-    return quickPickIds;
+    return null;
   }
 
   _TimelineEntry? _clipLogToWindow({
@@ -329,7 +319,7 @@ class _TodayTimelineScreenState extends State<TodayTimelineScreen> {
       builder: (BuildContext context) {
         return TaskPickerSheet(
           tasks: _tasks,
-          quickPickTaskIds: _quickPickTaskIds,
+          suggestedTaskId: _suggestedTaskId,
           selectedTaskId: null,
           blockLabel:
               '${_formatTime(entry.startTime)} - ${_formatTime(entry.endTime)}',
